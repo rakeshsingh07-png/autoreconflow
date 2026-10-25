@@ -148,7 +148,6 @@ with tab_upload:
             df_a = pd.read_csv(file_a) if file_a.name.endswith(".csv") else pd.read_excel(file_a)
             df_b = pd.read_csv(file_b) if file_b.name.endswith(".csv") else pd.read_excel(file_b)
             
-            # Enforce Free Tier Limit
             if not is_pro and (len(df_a) > 50 or len(df_b) > 50):
                 st.warning("⚠️ Free Tier limit: Only processing first 50 rows. Upgrade to Pro for unlimited volume.")
                 df_a = df_a.head(50)
@@ -170,4 +169,85 @@ with tab_upload:
             if st.button("🚀 Process File Reconciliation", type="primary"):
                 with st.spinner("Executing reconciliation cascade..."):
                     engine = CommercialReconEngine(df_a, df_b)
-                    m_df, um
+                    m_df, um_a, um_b = engine.run_reconciliation(
+                        col_ref_a=desc_col_a,
+                        col_amt_a=amt_col_a,
+                        col_ref_b=desc_col_b,
+                        col_amt_b=amt_col_b,
+                        tolerance=allowed_variance,
+                        fuzzy_threshold=float(fuzzy_sensitivity) if is_pro else 100.0,
+                        enable_split_matching=solve_batch if is_pro else False
+                    )
+                    
+                    st.success("Reconciliation Run Finished!")
+                    st.dataframe(m_df)
+                    
+                    total_matched_volume = m_df["Amount_A"].sum() if not m_df.empty and "Amount_A" in m_df.columns else 0.0
+                    match_rate = round((len(m_df) / max(len(df_a), 1)) * 100, 1)
+                    
+                    metadata = {
+                        "count_a": len(df_a),
+                        "count_b": len(df_b),
+                        "match_rate": match_rate,
+                        "reconciled_volume": total_matched_volume,
+                        "hours_saved": round(len(m_df) * 0.08, 1)
+                    }
+                    
+                    excel_bytes = CommercialReconEngine.generate_executive_workpaper(m_df, um_a, um_b, metadata)
+                    
+                    st.download_button(
+                        label="📥 Download CFO-Ready Reconciliation Workbook (.xlsx)",
+                        data=excel_bytes,
+                        file_name="reconciliation_workpapers.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+        except Exception as e:
+            st.error(f"Error reading uploaded files: {str(e)}")
+
+# --- Tab 3: Plans & Licensing ---
+with tab_pricing:
+    st.markdown("### Choose the Right Plan for Your Organization")
+    st.markdown("Upgrade your license to unlock full 3-tier algorithmic power and unlimited file volume.")
+    
+    card1, card2, card3 = st.columns(3)
+    
+    with card1:
+        st.info("### Tier 1: Free Starter")
+        st.markdown("""
+        **$0 / month**
+        * Ideal for initial testing & basic batches
+        
+        - Up to **50 rows** per reconciliation run
+        - Pass 1: Deterministic matching
+        - Standard table results preview
+        - Community web access
+        """)
+        st.caption("Active by default on open access.")
+        
+    with card2:
+        st.success("### Tier 2: Pro Commercial")
+        st.markdown("""
+        **$49 / month**
+        * For freelance accountants, bookkeepers & CPAs
+        
+        - **Unlimited** monthly rows & file sizes
+        - Pass 2: **RapidFuzz** fuzzy matching controls
+        - Pass 3: **1-to-Many** split payment solver
+        - CFO-Ready formatted Excel export
+        - Commercial license activation key
+        """)
+        st.link_button("Subscribe Pro ($49/mo)", "https://buy.stripe.com/your_pro_link_here", type="primary")
+        
+    with card3:
+        st.warning("### Tier 3: Enterprise / Lifetime")
+        st.markdown("""
+        **$299 one-time**
+        * For high-volume businesses & micro-PE buyers
+        
+        - All Pro Commercial features included
+        - **Lifetime license** (no recurring monthly fees)
+        - Standalone **Docker deployment** package
+        - Custom columns & enterprise SLA support
+        - Transferable IP rights for acquirers
+        """)
+        st.link_button("Buy Lifetime Pass ($299)", "https://buy.stripe.com/your_lifetime_link_here")

@@ -132,6 +132,31 @@ with tab_demo:
             with c_un2:
                 st.markdown("##### ⚠️ Unmatched Ledger Items")
                 st.dataframe(unmatched_ledger)
+                
+            # Executive Summary & Excel Workbook Export
+            total_matched_volume = matched_df["Amount_A"].sum() if not matched_df.empty and "Amount_A" in matched_df.columns else 0.0
+            match_rate = round((len(matched_df) / max(len(demo_bank), 1)) * 100, 1)
+            
+            demo_meta = {
+                "count_a": len(demo_bank),
+                "count_b": len(demo_ledger),
+                "match_rate": match_rate,
+                "reconciled_volume": total_matched_volume,
+                "hours_saved": round(len(matched_df) * 0.08, 1)
+            }
+            
+            demo_excel_bytes = CommercialReconEngine.generate_executive_workpaper(
+                matched_df, unmatched_bank, unmatched_ledger, demo_meta
+            )
+            
+            st.markdown("---")
+            st.download_button(
+                label="📥 Download CFO-Ready Reconciliation Workbook (.xlsx)",
+                data=demo_excel_bytes,
+                file_name="demo_reconciliation_workpaper.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_download_demo"
+            )
 
 # --- Tab 2: Reconcile Your Files ---
 with tab_upload:
@@ -148,6 +173,7 @@ with tab_upload:
             df_a = pd.read_csv(file_a) if file_a.name.endswith(".csv") else pd.read_excel(file_a)
             df_b = pd.read_csv(file_b) if file_b.name.endswith(".csv") else pd.read_excel(file_b)
             
+            # Enforce Free Tier Limit
             if not is_pro and (len(df_a) > 50 or len(df_b) > 50):
                 st.warning("⚠️ Free Tier limit: Only processing first 50 rows. Upgrade to Pro for unlimited volume.")
                 df_a = df_a.head(50)
@@ -182,6 +208,7 @@ with tab_upload:
                     st.success("Reconciliation Run Finished!")
                     st.dataframe(m_df)
                     
+                    # Generate Executive Workbook using CommercialReconEngine
                     total_matched_volume = m_df["Amount_A"].sum() if not m_df.empty and "Amount_A" in m_df.columns else 0.0
                     match_rate = round((len(m_df) / max(len(df_a), 1)) * 100, 1)
                     
@@ -199,7 +226,8 @@ with tab_upload:
                         label="📥 Download CFO-Ready Reconciliation Workbook (.xlsx)",
                         data=excel_bytes,
                         file_name="reconciliation_workpapers.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_download_upload"
                     )
         except Exception as e:
             st.error(f"Error reading uploaded files: {str(e)}")

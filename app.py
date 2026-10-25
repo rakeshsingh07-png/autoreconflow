@@ -11,7 +11,7 @@ st.set_page_config(
 
 # Live Razorpay Payment Link and Direct Support
 RAZORPAY_PRO_LINK = "https://rzp.io/rzp/jFe4aJWI"
-CONTACT_EMAIL = "rakeshfinanceexpert@gmail.com"
+CONTACT_EMAIL = "contact@rakeshsingh.tech"
 
 # Commercial Enterprise Styling
 st.markdown(

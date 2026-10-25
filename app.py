@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io
-import recon_engine
+from recon_engine import CommercialReconEngine
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -15,7 +14,6 @@ st.set_page_config(
 if "user_tier" not in st.session_state:
     st.session_state["user_tier"] = "Tier 1: Free Starter"
 
-# Preset valid license keys for buyers (replace/extend as needed)
 VALID_LICENSE_KEYS = {
     "PRO-RECON-2026": "Tier 2: Pro Commercial ($49/mo)",
     "RECON-CFO-ACCESS": "Tier 2: Pro Commercial ($49/mo)",
@@ -105,36 +103,35 @@ with tab_demo:
     c_demo1, c_demo2 = st.columns(2)
     with c_demo1:
         st.caption("Source A: Bank Statement (Messy narration)")
-        st.dataframe(demo_bank, use_container_width=True)
+        st.dataframe(demo_bank)
     with c_demo2:
         st.caption("Source B: General Ledger (ERP Bookings)")
-        st.dataframe(demo_ledger, use_container_width=True)
+        st.dataframe(demo_ledger)
         
     if st.button("⚡ Run Interactive Demo Reconciliation", type="primary"):
         with st.spinner("Processing through 3-tier cascade..."):
-            matched_df, unmatched_bank, unmatched_ledger = recon_engine.reconcile(
-                demo_bank,
-                demo_ledger,
-                amount_col_a="Amount",
-                amount_col_b="Ledger_Amt",
-                desc_col_a="Narration",
-                desc_col_b="Document_No",
-                variance=allowed_variance,
-                fuzzy_threshold=80 if is_pro else 100,
-                enable_split=True if is_pro else False
+            engine = CommercialReconEngine(demo_bank, demo_ledger)
+            matched_df, unmatched_bank, unmatched_ledger = engine.run_reconciliation(
+                col_ref_a="Narration",
+                col_amt_a="Amount",
+                col_ref_b="Document_No",
+                col_amt_b="Ledger_Amt",
+                tolerance=allowed_variance,
+                fuzzy_threshold=80.0 if is_pro else 100.0,
+                enable_split_matching=True if is_pro else False
             )
             
             st.success("Reconciliation Completed Successfully!")
             st.markdown("##### ✅ Matched Transactions")
-            st.dataframe(matched_df, use_container_width=True)
+            st.dataframe(matched_df)
             
             c_un1, c_un2 = st.columns(2)
             with c_un1:
                 st.markdown("##### ⚠️ Unmatched Bank Items")
-                st.dataframe(unmatched_bank, use_container_width=True)
+                st.dataframe(unmatched_bank)
             with c_un2:
                 st.markdown("##### ⚠️ Unmatched Ledger Items")
-                st.dataframe(unmatched_ledger, use_container_width=True)
+                st.dataframe(unmatched_ledger)
 
 # --- Tab 2: Reconcile Your Files ---
 with tab_upload:
@@ -153,7 +150,7 @@ with tab_upload:
             
             # Enforce Free Tier Limit
             if not is_pro and (len(df_a) > 50 or len(df_b) > 50):
-                st.warning("⚠️ Free Tier limit: Only processing the first 50 rows. Upgrade to Pro for unlimited volume.")
+                st.warning("⚠️ Free Tier limit: Only processing first 50 rows. Upgrade to Pro for unlimited volume.")
                 df_a = df_a.head(50)
                 df_b = df_b.head(50)
                 
@@ -172,81 +169,5 @@ with tab_upload:
                 
             if st.button("🚀 Process File Reconciliation", type="primary"):
                 with st.spinner("Executing reconciliation cascade..."):
-                    m_df, um_a, um_b = recon_engine.reconcile(
-                        df_a,
-                        df_b,
-                        amount_col_a=amt_col_a,
-                        amount_col_b=amt_col_b,
-                        desc_col_a=desc_col_a,
-                        desc_col_b=desc_col_b,
-                        variance=allowed_variance,
-                        fuzzy_threshold=fuzzy_sensitivity if is_pro else 100,
-                        enable_split=solve_batch if is_pro else False
-                    )
-                    
-                    st.success("Reconciliation Run Finished!")
-                    st.dataframe(m_df, use_container_width=True)
-                    
-                    # Excel Export
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                        m_df.to_excel(writer, sheet_name="Matched_Records", index=False)
-                        um_a.to_excel(writer, sheet_name="Unmatched_Source_A", index=False)
-                        um_b.to_excel(writer, sheet_name="Unmatched_Source_B", index=False)
-                        
-                    st.download_button(
-                        label="📥 Download CFO-Ready Reconciliation Workbook (.xlsx)",
-                        data=buffer.getvalue(),
-                        file_name="reconciliation_workpapers.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-        except Exception as e:
-            st.error(f"Error reading uploaded files: {str(e)}")
-
-# --- Tab 3: Plans & Licensing ---
-with tab_pricing:
-    st.markdown("### Choose the Right Plan for Your Organization")
-    st.markdown("Upgrade your license to unlock full 3-tier algorithmic power and unlimited file volume.")
-    
-    card1, card2, card3 = st.columns(3)
-    
-    with card1:
-        st.info("### Tier 1: Free Starter")
-        st.markdown("""
-        **$0 / month**
-        * Ideal for initial testing & basic batches
-        
-        - Up to **50 rows** per reconciliation run
-        - Pass 1: Deterministic matching
-        - Standard table results preview
-        - Community web access
-        """)
-        st.caption("Active by default on open access.")
-        
-    with card2:
-        st.success("### Tier 2: Pro Commercial")
-        st.markdown("""
-        **$49 / month**
-        * For freelance accountants, bookkeepers & CPAs
-        
-        - **Unlimited** monthly rows & file sizes
-        - Pass 2: **RapidFuzz** fuzzy matching controls
-        - Pass 3: **1-to-Many** split payment solver
-        - CFO-Ready formatted Excel export
-        - Commercial license activation key
-        """)
-        st.link_button("Subscribe Pro ($49/mo)", "https://buy.stripe.com/your_pro_link_here", type="primary")
-        
-    with card3:
-        st.warning("### Tier 3: Enterprise / Lifetime")
-        st.markdown("""
-        **$299 one-time**
-        * For high-volume businesses & micro-PE buyers
-        
-        - All Pro Commercial features included
-        - **Lifetime license** (no recurring monthly fees)
-        - Standalone **Docker deployment** package
-        - Custom columns & enterprise SLA support
-        - Transferable IP rights for acquirers
-        """)
-        st.link_button("Buy Lifetime Pass ($299)", "https://buy.stripe.com/your_lifetime_link_here")
+                    engine = CommercialReconEngine(df_a, df_b)
+                    m_df, um

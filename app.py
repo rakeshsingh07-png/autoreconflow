@@ -1,88 +1,105 @@
-import io
 import pandas as pd
 from recon_engine import CommercialReconEngine
 import streamlit as st
 
 st.set_page_config(
-    page_title="AutoReconFlow | Enterprise Financial Reconciliation",
+    page_title="AutoReconFlow | Financial Reconciliation Platform",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom Styling for SaaS Appeal
+# Live Razorpay Payment Link and Direct Support
+RAZORPAY_PRO_LINK = "https://rzp.io/rzp/jFe4aJWI"
+CONTACT_EMAIL = "rakeshfinanceexpert@gmail.com"
+
+# Commercial Enterprise Styling
 st.markdown(
     """
     <style>
     .metric-card {
         background-color: #f8f9fa;
         border-left: 5px solid #0052cc;
-        padding: 18px;
+        padding: 16px;
         border-radius: 6px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .pricing-box {
+        border: 2px solid #0052cc;
+        border-radius: 10px;
+        padding: 22px;
+        background-color: #ffffff;
+        text-align: center;
     }
     .stButton>button {
         background-color: #0052cc;
         color: white;
         font-weight: 600;
         border-radius: 6px;
-        height: 48px;
     }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
-# Top Brand Bar
+# Header Navigation
 col_logo, col_badge = st.columns([4, 1])
 with col_logo:
     st.title("⚖️ AutoReconFlow")
-    st.caption(
-        "Deterministic Multi-Source Financial & Bank Reconciliation Platform"
-    )
+    st.caption("Deterministic Multi-Pass Financial & Bank Reconciliation Platform")
 with col_badge:
     st.markdown(
-        "<div style='text-align: right; margin-top: 15px;'><span style='background-color: #e3fcef; color: #006644; padding: 6px 12px; border-radius: 12px; font-weight: bold;'>Enterprise Edition</span></div>",
+        "<div style='text-align: right; margin-top: 15px;'><span style='background-color: #e3fcef; color: #006644; padding: 6px 12px; border-radius: 12px; font-weight: bold;'>Production Live</span></div>",
         unsafe_allow_html=True,
     )
 
 st.divider()
 
-# Sidebar: Configuration & Pricing CTA
+# Sidebar: Controls & Instant Checkout
 with st.sidebar:
-    st.header("⚙️ Matching Controls")
+    st.header("⚙️ Matching Engine Controls")
     tolerance = st.slider(
-        "Variance Tolerance ($)",
+        "Allowed Variance ($)",
         0.00,
         1.00,
         0.00,
         0.01,
-        help="Allowed penny differences for rounding discrepancies.",
+        help="Tolerance threshold for rounding discrepancies.",
     )
     fuzzy_ratio = st.slider(
-        "Fuzzy Match Threshold (%)",
+        "Fuzzy Match Sensitivity (%)",
         60,
         100,
         80,
-        help="Catches noisy payment references (e.g. ACH prefixes).",
+        help="Catches noisy payment references (e.g., ACH/Wire prefixes).",
     )
     enable_split = st.checkbox(
         "Solve 1-to-Many Batch Payments",
         value=True,
-        help="Knapsack solver for lump-sum vendor settlements.",
+        help="Matches multiple invoice entries to a single lump-sum settlement.",
     )
 
     st.markdown("---")
-    st.markdown("### 💼 Commercial License")
-    st.info(
-        "**Unlimited Transactions Tier**\n- Multi-ERP connectors (SAP, Oracle, NetSuite)\n- SOC-2 compliant audit trails\n- Dedicated AWS VPC deployment"
+    st.header("💳 Commercial Upgrade")
+    st.markdown(
+        """
+        **Pro Commercial License (₹3,999)**
+        - Unlimited monthly row volume
+        - Full 3-Tier cascade & split solver
+        - CFO-Ready formatted Excel workpapers
+        - Priority enterprise support
+        """
     )
     st.link_button(
-        "Schedule Enterprise Demo",
-        "mailto:contact@rakeshsingh.tech?subject=AutoReconFlow%20Enterprise%20Inquiry",
+        "💳 Upgrade to Pro (₹3,999)",
+        RAZORPAY_PRO_LINK,
+        use_container_width=True,
     )
 
-# Demo Mode Setup Function
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption(f"Enterprise inquiries: [{CONTACT_EMAIL}](mailto:{CONTACT_EMAIL})")
+
+# Sample Datasets for Instant Demo
 demo_df_bank = pd.DataFrame({
     "Bank_Date": [
         "2026-10-01",
@@ -123,26 +140,26 @@ demo_df_gl = pd.DataFrame({
     "Ledger_Amt": [1500.00, 3200.00, 4750.50, 4000.00, 2000.00, 1250.00],
 })
 
-# Workflow Selection
-tab_upload, tab_demo = st.tabs(
-    ["📁 Upload Your Datasets", "🚀 Instant 1-Click Interactive Demo"]
-)
+tab_demo, tab_upload, tab_pricing = st.tabs([
+    "🚀 1-Click Interactive Demo",
+    "📁 Reconcile Your Files",
+    "🏷️ Plans & Licensing",
+])
 
+# Tab 1: Interactive Demo
 with tab_demo:
-    st.write(
-        "Experience the 3-Tier engine instantly on sample messy corporate data (Exact match, noisy reference match, and split settlement):"
-    )
+    st.markdown("##### Test the 3-Tier engine on messy corporate transactions:")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        st.caption("Source A: Bank Statement (Messy ACH / Wire Narration)")
+        st.caption("Source A: Bank Statement (Messy narration)")
         st.dataframe(demo_df_bank, use_container_width=True, height=180)
     with col_d2:
         st.caption("Source B: General Ledger (ERP Bookings)")
         st.dataframe(demo_df_gl, use_container_width=True, height=180)
 
-    if st.button("⚡ Run Instant Interactive Recon"):
+    if st.button("⚡ Run Instant Engine Demo", use_container_width=True):
         engine = CommercialReconEngine(demo_df_bank, demo_df_gl)
-        with st.spinner("Processing deterministic multi-pass cascade..."):
+        with st.spinner("Processing multi-pass cascade..."):
             matched_df, exc_a, exc_b = engine.run_reconciliation(
                 col_ref_a="Narration",
                 col_amt_a="Amount",
@@ -153,25 +170,23 @@ with tab_demo:
                 enable_split_matching=enable_split,
             )
 
-        # ROI & Performance Metrics
         total_rec = len(demo_df_bank) + len(demo_df_gl)
-        match_rate = round(
-            (len(matched_df) * 2 / total_rec) * 100, 1
-        ) if total_rec > 0 else 0
+        match_rate = (
+            round((len(matched_df) * 2 / total_rec) * 100, 1)
+            if total_rec > 0
+            else 0
+        )
         volume = matched_df["Amount_A"].sum() if not matched_df.empty else 0
-        hours_saved = round(
-            (len(matched_df) * 4) / 60, 1
-        )  # Avg 4 mins per complex exception manually
+        hours_saved = round((len(matched_df) * 4) / 60, 1)
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Overall Match Rate", f"{match_rate}%", "+32% vs Manual")
+        m1.metric("Cascade Match Rate", f"{match_rate}%", "+35% vs Manual")
         m2.metric("Matched Pairs", len(matched_df))
-        m3.metric("Reconciled Volume", f"${volume:,.2f}")
-        m4.metric("Est. Time Saved", f"{hours_saved} Hours", "High Efficiency")
+        m3.metric("Reconciled Balance", f"${volume:,.2f}")
+        m4.metric("Est. Manual Time Saved", f"{hours_saved} Hours")
 
-        # Results Tabs
         r1, r2, r3 = st.tabs([
-            "✅ Matched Records (Traceable)",
+            "✅ Matched Audit Ledger",
             "⚠️ Source A Exceptions",
             "⚠️ Source B Exceptions",
         ])
@@ -182,7 +197,6 @@ with tab_demo:
         with r3:
             st.dataframe(exc_b, use_container_width=True)
 
-        # Export Package
         meta = {
             "count_a": len(demo_df_bank),
             "count_b": len(demo_df_gl),
@@ -193,55 +207,48 @@ with tab_demo:
         excel_bytes = CommercialReconEngine.generate_executive_workpaper(
             matched_df, exc_a, exc_b, meta
         )
+
         st.download_button(
-            label="📥 Download CFO-Ready Audit Workpaper (.xlsx)",
+            label="📥 Download CFO-Ready Workpaper (.xlsx)",
             data=excel_bytes,
-            file_name=f"AutoReconFlow_Audit_Package_{pd.Timestamp.now().strftime('%Y%m%d')}.xlsx",
+            file_name="AutoReconFlow_Demo_Workpaper.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
 
+# Tab 2: User File Upload
 with tab_upload:
     u1, u2 = st.columns(2)
     with u1:
         f_a = st.file_uploader(
-            "Source A (Bank/Subledger CSV/Excel)",
+            "Upload Bank / Subledger (CSV or Excel)",
             type=["csv", "xlsx"],
-            key="up_a",
+            key="file_a",
         )
     with u2:
         f_b = st.file_uploader(
-            "Source B (General Ledger CSV/Excel)",
+            "Upload ERP / General Ledger (CSV or Excel)",
             type=["csv", "xlsx"],
-            key="up_b",
+            key="file_b",
         )
 
     if f_a and f_b:
-        df_a_custom = (
-            pd.read_csv(f_a) if f_a.name.endswith(".csv") else pd.read_excel(f_a)
-        )
-        df_b_custom = (
-            pd.read_csv(f_b) if f_b.name.endswith(".csv") else pd.read_excel(f_b)
-        )
+        df_a = pd.read_csv(f_a) if f_a.name.endswith(".csv") else pd.read_excel(f_a)
+        df_b = pd.read_csv(f_b) if f_b.name.endswith(".csv") else pd.read_excel(f_b)
 
-        st.markdown("#### Dynamic Column Mapping")
+        st.markdown("##### Dynamic Schema Mapping")
         c1, c2 = st.columns(2)
         with c1:
             col_ref_a = st.selectbox(
-                "Source A Reference / Narration Column", df_a_custom.columns
+                "Source A Reference / Narration", df_a.columns
             )
-            col_amt_a = st.selectbox(
-                "Source A Amount Column", df_a_custom.columns
-            )
+            col_amt_a = st.selectbox("Source A Amount", df_a.columns)
         with c2:
-            col_ref_b = st.selectbox(
-                "Source B Document / Key Column", df_b_custom.columns
-            )
-            col_amt_b = st.selectbox(
-                "Source B Ledger Amount Column", df_b_custom.columns
-            )
+            col_ref_b = st.selectbox("Source B Document / Key", df_b.columns)
+            col_amt_b = st.selectbox("Source B Amount", df_b.columns)
 
-        if st.button("🚀 Reconcile Uploaded Files"):
-            engine = CommercialReconEngine(df_a_custom, df_b_custom)
+        if st.button("🚀 Reconcile Uploaded Files", use_container_width=True):
+            engine = CommercialReconEngine(df_a, df_b)
             matched_df, exc_a, exc_b = engine.run_reconciliation(
                 col_ref_a,
                 col_amt_a,
@@ -251,19 +258,16 @@ with tab_upload:
                 fuzzy_threshold=fuzzy_ratio,
                 enable_split_matching=enable_split,
             )
-
             st.success(
-                f"Completed! {len(matched_df)} transaction pairs resolved across 3 passes."
+                f"Matched {len(matched_df)} transaction pairs across the cascade!"
             )
             st.dataframe(matched_df, use_container_width=True)
 
             meta = {
-                "count_a": len(df_a_custom),
-                "count_b": len(df_b_custom),
+                "count_a": len(df_a),
+                "count_b": len(df_b),
                 "match_rate": round(
-                    (len(matched_df) * 2 / (len(df_a_custom) + len(df_b_custom)))
-                    * 100,
-                    1,
+                    (len(matched_df) * 2 / (len(df_a) + len(df_b))) * 100, 1
                 ),
                 "reconciled_volume": (
                     matched_df["Amount_A"].sum() if not matched_df.empty else 0
@@ -276,6 +280,74 @@ with tab_upload:
             st.download_button(
                 label="📥 Download Audit Workpaper (.xlsx)",
                 data=excel_bytes,
-                file_name="AutoReconFlow_Reconciliation.xlsx",
+                file_name="AutoReconFlow_Production_Workpaper.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
             )
+
+# Tab 3: Pricing & Checkout
+with tab_pricing:
+    st.subheader("Select a Plan for Your Finance Operations")
+    p1, p2, p3 = st.columns(3)
+
+    with p1:
+        st.markdown(
+            """
+            <div class='pricing-box'>
+                <h4>Starter</h4>
+                <h2>Free</h2>
+                <p>For independent accountants</p>
+                <hr>
+                <p>✔ Up to 1,000 rows/month</p>
+                <p>✔ Exact match pass</p>
+                <p>✖ No split-sum solving</p>
+                <p>✖ Standard export</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with p2:
+        st.markdown(
+            """
+            <div class='pricing-box' style='border-color: #0052cc; box-shadow: 0 4px 12px rgba(0,82,204,0.15);'>
+                <span style='background-color: #0052cc; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px;'>POPULAR</span>
+                <h4>Professional</h4>
+                <h2>₹3,999 <span style='font-size:16px;'>one-time / monthly</span></h2>
+                <p>For high-volume finance teams</p>
+                <hr>
+                <p>✔ Unlimited transaction rows</p>
+                <p>✔ 3-Tier Fuzzy & Split Solver</p>
+                <p>✔ CFO-Ready Audit Workpapers</p>
+                <p>✔ Email support</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.link_button(
+            "💳 Instant Checkout (Razorpay)",
+            RAZORPAY_PRO_LINK,
+            use_container_width=True,
+        )
+
+    with p3:
+        st.markdown(
+            f"""
+            <div class='pricing-box'>
+                <h4>Enterprise</h4>
+                <h2>Custom</h2>
+                <p>For SSCs, Banks & Enterprises</p>
+                <hr>
+                <p>✔ Direct SAP / Oracle connectors</p>
+                <p>✔ SOC-2 & On-premise VPC deployment</p>
+                <p>✔ Multi-currency FX revaluation</p>
+                <p>✔ Dedicated Support SLA</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.link_button(
+            "Contact Sales",
+            f"mailto:{CONTACT_EMAIL}?subject=Enterprise%20Recon%20Inquiry",
+            use_container_width=True,
+        )

@@ -1,6 +1,5 @@
 import itertools
 from datetime import datetime
-import numpy as np
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 import pandas as pd
@@ -17,7 +16,8 @@ class CommercialReconEngine:
         self.df_b["_matched"] = False
         self.matches = []
 
-    def clean_text(self, series: pd.Series) -> pd.Series:
+    @staticmethod
+    def clean_text(series: pd.Series) -> pd.Series:
         return (
             series.astype(str)
             .str.upper()
@@ -34,7 +34,6 @@ class CommercialReconEngine:
         fuzzy_threshold: float = 80.0,
         enable_split_matching: bool = True,
     ):
-        # Normalize keys and amounts
         self.df_a["_norm_ref"] = self.clean_text(self.df_a[col_ref_a])
         self.df_b["_norm_ref"] = self.clean_text(self.df_b[col_ref_b])
         self.df_a["_norm_amt"] = pd.to_numeric(
@@ -75,12 +74,10 @@ class CommercialReconEngine:
                     "Amount_A": val_a,
                     "Amount_B": round(self.df_b.at[b_idx, "_norm_amt"], 2),
                     "Variance": 0.0,
-                    "Idx_A": a_idx,
-                    "Idx_B": b_idx,
                 })
 
         # -------------------------------------------------------------
-        # PASS 2: Fuzzy Reference + Strict Amount Parity
+        # PASS 2: Fuzzy Reference + Amount Parity
         # -------------------------------------------------------------
         unmatched_a = self.df_a[~self.df_a["_matched"]].index.tolist()
         unmatched_b = self.df_b[~self.df_b["_matched"]].index.tolist()
@@ -97,7 +94,6 @@ class CommercialReconEngine:
                     continue
 
                 val_b = self.df_b.at[b_idx, "_norm_amt"]
-                # Must match amount within tolerance
                 if abs(val_a - val_b) <= tolerance:
                     str_b = str(self.df_b.at[b_idx, col_ref_b]).strip()
                     score = fuzz.token_sort_ratio(str_a, str_b)
@@ -118,21 +114,19 @@ class CommercialReconEngine:
                     "Amount_A": val_a,
                     "Amount_B": val_b,
                     "Variance": round(val_a - val_b, 2),
-                    "Idx_A": a_idx,
-                    "Idx_B": best_b,
                 })
 
         # -------------------------------------------------------------
-        # PASS 3: 1-to-Many Split Payment Solver (Knapsack subset-sum)
+        # PASS 3: 1-to-Many Batch Payments (Subset-Sum Knapsack)
         # -------------------------------------------------------------
         if enable_split_matching:
             unmatched_a = self.df_a[~self.df_a["_matched"]].index.tolist()
             unmatched_b = self.df_b[~self.df_b["_matched"]].index.tolist()
 
-            # Target: Single lump sum in B matching 2 to 3 items in A
             for b_idx in unmatched_b:
                 if self.df_b.at[b_idx, "_matched"]:
                     continue
+
                 target_amt = round(self.df_b.at[b_idx, "_norm_amt"], 2)
                 available_a = [
                     i for i in unmatched_a if not self.df_a.at[i, "_matched"]
@@ -164,17 +158,14 @@ class CommercialReconEngine:
                             "Source_A_Ref": self.df_a.at[
                                 a_sub_idx, col_ref_a
                             ],
-                            "Source_B_Ref": f"{b_ref} (Batch Component)",
+                            "Source_B_Ref": f"{b_ref} (Batch Settlement)",
                             "Amount_A": self.df_a.at[
                                 a_sub_idx, "_norm_amt"
                             ],
                             "Amount_B": target_amt,
                             "Variance": 0.0,
-                            "Idx_A": a_sub_idx,
-                            "Idx_B": b_idx,
                         })
 
-        # Compile final outputs
         df_matched = pd.DataFrame(self.matches)
         df_exc_a = (
             self.df_a[~self.df_a["_matched"]]
@@ -201,19 +192,18 @@ class CommercialReconEngine:
         output = BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            # 1. Executive Summary Sheet
             summary_data = {
                 "Metric": [
-                    "Reconciliation Date",
-                    "Source A Total Records",
-                    "Source B Total Records",
-                    "Matched Records Count",
-                    "Source A Exceptions (Unmatched)",
-                    "Source B Exceptions (Unmatched)",
+                    "Reconciliation Timestamp",
+                    "Source A Record Count",
+                    "Source B Record Count",
+                    "Total Matched Count",
+                    "Source A Exceptions",
+                    "Source B Exceptions",
                     "Match Rate (%)",
-                    "Total Reconciled Volume",
-                    "Estimated Manual Effort Saved",
-                    "Audit Status",
+                    "Total Reconciled Value",
+                    "Est. Time Saved (Hours)",
+                    "Audit Balance Status",
                 ],
                 "Value": [
                     datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -225,20 +215,18 @@ class CommercialReconEngine:
                     f"{meta['match_rate']}%",
                     f"${meta['reconciled_volume']:,.2f}",
                     f"{meta['hours_saved']} Hours",
-                    "BALANCED & AUDITED",
+                    "RECONCILED & BALANCED",
                 ],
             }
             pd.DataFrame(summary_data).to_excel(
                 writer, sheet_name="Executive Summary", index=False
             )
 
-            # 2. Matched Records Sheet
             if not df_matched.empty:
                 df_matched.to_excel(
-                    writer, sheet_name="Matched Ledger", index=False
+                    writer, sheet_name="Matched Audit Ledger", index=False
                 )
 
-            # 3. Exceptions Sheets
             df_exc_a.to_excel(
                 writer, sheet_name="Source A Exceptions", index=False
             )

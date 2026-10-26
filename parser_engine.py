@@ -5,16 +5,28 @@ import pandas as pd
 import pdfplumber
 
 def parse_to_polars(uploaded_file) -> pl.DataFrame:
-    """Reads CSV, Excel, or PDF and returns a high-performance Polars DataFrame."""
+    """Reads CSV, Excel, or PDF and returns a clean, multi-column Polars DataFrame."""
     filename = uploaded_file.name.lower()
     
     if filename.endswith(".csv"):
         uploaded_file.seek(0)
-        return pl.read_csv(uploaded_file.read(), ignore_errors=True)
+        content = uploaded_file.read()
+        # Handle string or bytes decoding
+        if isinstance(content, bytes):
+            # Try utf-8 first, fallback to latin1
+            try:
+                text_data = content.decode("utf-8")
+            except UnicodeDecodeError:
+                text_data = content.decode("latin1")
+        else:
+            text_data = str(content)
+            
+        # Wrap in io.StringIO to ensure Polars accurately detects the comma delimiter
+        return pl.read_csv(io.StringIO(text_data), separator=",", ignore_errors=True)
         
     elif filename.endswith((".xlsx", ".xls")):
         uploaded_file.seek(0)
-        # Read Excel via Pandas then convert to Polars for memory efficiency
+        # Read Excel via Pandas then convert to Polars
         pdf = pd.read_excel(uploaded_file)
         return pl.from_pandas(pdf)
         

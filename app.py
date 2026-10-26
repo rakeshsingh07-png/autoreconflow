@@ -39,7 +39,7 @@ if file_a and file_b:
 
     tolerance = st.slider("Allowed Amount Tolerance", 0.00, 5.00, 1.00, step=0.10)
 
-    if st.button("🚀 Run Automated Reconciliation", type="primary", use_container_width=True):
+    if st.button("🚀 Run Automated Reconciliation", type="primary", width="stretch"):
         map_a = {"id": id_a, "party": party_a, "amt": amt_a}
         map_b = {"id": id_b, "party": party_b, "amt": amt_b}
 
@@ -58,15 +58,15 @@ if file_a and file_b:
         tab1, tab2, tab3 = st.tabs(["Matched Records", "Fuzzy Review", "Exceptions"])
         
         with tab1:
-            st.dataframe(matched.head(1000).to_pandas(), use_container_width=True)
+            st.dataframe(matched.head(1000).to_pandas(), width="stretch")
             st.download_button("📥 Download Matched CSV", matched.write_csv(), "matched_ledger.csv")
             
         with tab2:
             if len(fuzzy) > 0:
-                st.dataframe(fuzzy.to_pandas(), use_container_width=True)
+                st.dataframe(fuzzy.to_pandas(), width="stretch")
             else:
                 st.info("No fuzzy discrepancies found.")
                 
         with tab3:
             st.write("Source A Unmatched Records:")
-            st.dataframe(un_a.head(1000).to_pandas(), use_container_width=True)
+            st.dataframe(un_a.head(1000).to_pandas(), width="stretch")

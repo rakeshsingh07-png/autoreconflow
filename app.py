@@ -180,25 +180,93 @@ st.sidebar.divider()
 st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
 st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
 
-# --- User Manual & Ingestion Guidelines ---
-with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard)", expanded=False):
+# --- Comprehensive Enterprise Standard Operating Procedure & Technical Manual ---
+with st.expander("📖 Comprehensive Procedure & Configuration Manual (SOX 404 / ISA-500 Standard)", expanded=False):
     st.markdown("""
-    ### 1. Architectural Overview & Workflow
-    AutoReconFlow operates a deterministic, 3-tier matching engine powered by Polars:
-    1. **Data Ingestion**: Files from Source A (Internal Books/Ledger) and Source B (Bank/Counterparty/Tax Portal) are parsed into memory.
-    2. **Field Normalization & Sanitization**: Strings are trimmed, special characters removed, and numeric values converted to standard floats.
-    3. **Three-Tier Matching**:
-       * **Tier-1 (Deterministic)**: 100% exact match on Reference ID and Amount.
-       * **Tier-2 (Fuzzy / Threshold Review)**: Matches within specified tolerance limits and text proximity (Jaro-Winkler / Levenshtein).
-       * **Tier-3 (Exceptions)**: Discrepancies and unlinked entries categorized by origin source.
-    4. **Two-Stage Four-Eyes Governance with Line-Item Query Thread**: 
-       * **Stage 1 (Preparer Submission)**: Preparer audits records and submits to Reviewer with automated email dispatch.
-       * **Stage 2 (Supervisory Review & Clarification)**: Reviewer evaluates discrepancies, can raise line-specific queries for Preparer clarification, and issues final sign-off.
-    5. **Audit-Trail Export**: Multi-sheet SOX-compliant Excel workpaper plus an immutable, tamper-evident PDF Executive Sign-Off Certificate.
+    ### 🏛️ Section 1: Corporate Entity & Workpaper Branding Setup
+    AutoReconFlow stamps corporate identity metadata across all audit deliverables (Multi-tab Excel workpapers and signed PDF certificates):
+    * **Corporate Logo**: Upload a high-resolution PNG or JPG (transparent background recommended, ideal dimensions: 400x120 px). The logo is automatically rendered on the upper-right corner of the official PDF Sign-Off Certificate.
+    * **Legal Entity Name**: Enter the full registered statutory entity name (e.g., *Global Enterprise Solutions Ltd.*). This appears on the title block of both Excel and PDF documents.
+    * **Registered Office Address**: Provide the legal registered address. It will be stamped directly beneath the entity title in standard audit report format.
+    * **Unique Identification Number (CIN / LEI / GSTIN / Tax ID)**: 
+      * For India: Corporate Identification Number (CIN), GSTIN, or Permanent Account Number (PAN).
+      * For US/Global: Legal Entity Identifier (LEI), Employer Identification Number (EIN), or VAT Registration Number.
+      * *Audit Note*: This unique ID forms part of the immutable SHA-256 digital fingerprint.
 
     ---
 
-    ### 2. Supported vs. Unsupported File Types
+    ### 📬 Section 2: Automated Email Dispatch & SMTP Mailbox Mapping Matrix
+    AutoReconFlow features a zero-token, built-in SMTP engine (`smtplib`). No third-party paid API tokens are required. Configure your preferred mailbox using the exact mapping parameters below:
+
+    #### Option A: Gmail / Google Workspace (Recommended for Quick Setup)
+    * **SMTP Host**: `smtp.gmail.com`
+    * **SMTP Port**: `465` (SSL)
+    * **Username**: Your complete Gmail address (e.g., `finance.controller@gmail.com`)
+    * **Password Generation (16-Character App Password)**:
+      1. Log into your Google Account at **[myaccount.google.com/security](https://myaccount.google.com/security)**.
+      2. Ensure **2-Step Verification** is active.
+      3. In the top search bar, type **App passwords**.
+      4. Enter `AutoReconFlow` as the app name and click **Create**.
+      5. Copy the generated 16-character code (e.g., `abcd efgh ijkl mnop`) and paste it into the **Sender App Password** field.
+      * *Security Note*: Standard Gmail login passwords will be blocked by Google. You must use an App Password.
+
+    #### Option B: Microsoft 365 / Corporate Outlook
+    * **SMTP Host**: `smtp.office365.com`
+    * **SMTP Port**: `587` (TLS)
+    * **Username**: Your corporate Office 365 email (e.g., `analyst@corporatedomain.com`)
+    * **Password**: Microsoft 365 Account Password (or App Password if MFA is enforced by your IT administrator).
+    * *IT Note*: Ensure *Authenticated SMTP* is permitted on the mailbox in the Microsoft 365 Admin Center.
+
+    #### Option C: Brevo (Formerly Sendinblue) / Resend (High-Volume Free SaaS Tier)
+    * **SMTP Host**: `smtp-relay.brevo.com`
+    * **SMTP Port**: `587` (TLS)
+    * **Username**: Your Brevo login email
+    * **Password**: Master SMTP Key generated under *Transactional -> Settings -> Configuration*.
+    * *Advantage*: Up to 300 free corporate emails per day with verified custom domain deliverability (SPF/DKIM).
+
+    #### Option D: Custom Corporate / On-Premises Mail Server
+    * **SMTP Host**: `mail.yourcompany.com` or internal IP (e.g., `10.0.0.25`)
+    * **SMTP Port**: `465` (SSL) or `587` (TLS / STARTTLS)
+    * **Authentication**: Provide standard service-account credentials authorized to relay internal audit notices.
+
+    ---
+
+    ### 🔄 Section 3: Four-Eyes Governance & Line-Item Audit Query SOP
+    AutoReconFlow enforces strict segregation of duties (SoD) under PCAOB AS 2201 and SOX 404:
+
+    ```
+    [ Stage 1: Preparer Audit & Submission ]
+         │
+         ▼
+    Preparer uploads Source A & Source B -> Runs matching engine -> Reviews metrics -> 
+    Inputs Emp ID & checks verification box -> Clicks "Mark Preparer Task as Complete & Notify Reviewer"
+         │
+         ├──────────────────────────► [ Automated HTML Email sent to Reviewer ]
+         │
+    [ Stage 2: Supervisory Review & Line-Item Query ]
+         │
+         ▼
+    Reviewer inspects exceptions. Two pathways available:
+         ├── Pathway 1 (Direct Clearance): Selects verdict -> Clicks "Approve & Finalize Sign-Off"
+         └── Pathway 2 (Line-Item Clarification Loop):
+               1. Reviewer selects disputed transaction from dropdown.
+               2. Enters audit observation (e.g., "Variance of 50.00 requires swift advice copy").
+               3. Clicks "Send Query Back to Preparer".
+               4. [ Automated Email dispatched to Preparer ].
+               5. Preparer logs in, enters line-item clarification, and resubmits.
+               6. [ Automated Email dispatched to Reviewer ].
+               7. Reviewer accepts explanation and clicks "Accept Explanation & Formally Approve".
+         │
+    [ Stage 3: Audit Deliverable Sealing ]
+         │
+         ▼
+    Excel Workpaper & Signed PDF Certificate unlock for download. 
+    Full query dialogue is permanently stamped into the document body under the SHA-256 seal.
+    ```
+
+    ---
+
+    ### 📁 Section 4: Data Ingestion & File Compatibility Guidelines
 
     | File Category | Supported Inputs (✅ Accepted) | Unsupported Inputs (❌ Not Accepted) |
     | :--- | :--- | :--- |

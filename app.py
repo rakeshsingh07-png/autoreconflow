@@ -4,6 +4,9 @@ import datetime
 import hashlib
 import tempfile
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import streamlit as st
 import pandas as pd
 import polars as pl
@@ -18,23 +21,74 @@ st.set_page_config(
     layout="wide"
 )
 
-# Sidebar
+# --- Pure Python Token-Free Email Dispatcher ---
+def send_workflow_email(smtp_settings, recipient_email, subject, body_content):
+    """Sends notification emails using pure Python smtplib with zero token cost."""
+    if not smtp_settings.get("enabled", False):
+        return True, "Email simulation active (SMTP disabled)."
+    
+    server_host = smtp_settings.get("host", "smtp.gmail.com")
+    server_port = int(smtp_settings.get("port", 465))
+    sender_user = smtp_settings.get("user", "")
+    sender_pass = smtp_settings.get("password", "")
+
+    if not sender_user or not sender_pass or not recipient_email:
+        return False, "SMTP user, password, or recipient email missing."
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
+        msg['To'] = recipient_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body_content, 'plain'))
+
+        if server_port == 465:
+            with smtplib.SMTP_SSL(server_host, server_port) as server:
+                server.login(sender_user, sender_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(server_host, server_port) as server:
+                server.starttls()
+                server.login(sender_user, sender_pass)
+                server.send_message(msg)
+        return True, "Notification email successfully dispatched."
+    except Exception as e:
+        return False, f"SMTP Error: {str(e)}"
+
+# --- Sidebar Configuration ---
 st.sidebar.title("⚡ AutoReconFlow")
 st.sidebar.markdown("**Enterprise B2B Edition v2.0**")
 st.sidebar.caption("SOX 404 / ISA-500 & SOC 1 Type II Architecture")
 st.sidebar.divider()
 
-# Sidebar: Corporate White-Label & Entity Profile
+# Organization White-Label Profile
 st.sidebar.markdown("### 🏢 Client Organization Branding")
 uploaded_logo = st.sidebar.file_uploader("Upload Corporate Logo (PNG/JPG)", type=["png", "jpg", "jpeg"], key="company_logo")
 if uploaded_logo:
-    st.sidebar.image(uploaded_logo, caption="Active Logo Branding", use_container_width=True)
+    st.sidebar.image(uploaded_logo, caption="Active Workpaper Branding", use_container_width=True)
 
 company_name = st.sidebar.text_input("Company / Legal Entity Name", value="Global Enterprise Solutions Ltd.", key="cfg_comp_name")
 company_address = st.sidebar.text_area("Registered Office Address", value="Tower 4, Financial District, Cyber City, Gurugram, India - 122002", key="cfg_comp_addr", height=70)
 company_uid = st.sidebar.text_input("Unique Identification No. (CIN / LEI / Tax ID)", value="CIN: U72200HR2026PTC109823", key="cfg_comp_uid")
 st.sidebar.divider()
 
+# Email Notification Settings (Zero Token API Cost)
+with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
+    enable_smtp = st.checkbox("Enable Live SMTP Email Dispatch", value=False, key="smtp_enabled")
+    smtp_host = st.text_input("SMTP Server Host", value="smtp.gmail.com", key="smtp_host")
+    smtp_port = st.text_input("SMTP Port", value="465", key="smtp_port")
+    smtp_user = st.text_input("Sender Email Address", value="notifications@autoreconflow.com", key="smtp_user")
+    smtp_pass = st.text_input("Sender App Password", type="password", key="smtp_pass")
+
+smtp_cfg = {
+    "enabled": enable_smtp,
+    "host": smtp_host,
+    "port": smtp_port,
+    "user": smtp_user,
+    "password": smtp_pass
+}
+
+st.sidebar.divider()
 st.sidebar.markdown("### 💼 Commercial Licensing")
 st.sidebar.markdown(
     """
@@ -51,7 +105,7 @@ st.sidebar.divider()
 st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
 st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
 
-# --- Enterprise User Manual & Technical Ingestion Guidelines ---
+# --- User Manual & Ingestion Guidelines ---
 with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard)", expanded=False):
     st.markdown("""
     ### 1. Architectural Overview & Workflow
@@ -62,9 +116,9 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
        * **Tier-1 (Deterministic)**: 100% exact match on Reference ID and Amount.
        * **Tier-2 (Fuzzy / Threshold Review)**: Matches within specified tolerance limits and text proximity (Jaro-Winkler / Levenshtein).
        * **Tier-3 (Exceptions)**: Discrepancies and unlinked entries categorized by origin source.
-    4. **Two-Stage Four-Eyes Governance**: 
-       * **Stage 1 (Preparer Submission)**: Preparer audits records and locks submission.
-       * **Stage 2 (Supervisory Review)**: Reviewer evaluates variances, issues formal verdict, and seals completion.
+    4. **Two-Stage Four-Eyes Governance with Line-Item Query Thread**: 
+       * **Stage 1 (Preparer Submission)**: Preparer audits records and submits to Reviewer.
+       * **Stage 2 (Supervisory Review & Clarification)**: Reviewer evaluates discrepancies, can raise line-specific queries for Preparer clarification, and issues final sign-off.
     5. **Audit-Trail Export**: Multi-sheet SOX-compliant Excel workpaper plus an immutable, tamper-evident PDF Executive Sign-Off Certificate.
 
     ---
@@ -117,7 +171,7 @@ class AuditCertificatePDF(FPDF):
         self.cell(0, 4, 'Confidential - For Authorized Supervisory & Statutory Audit Inspection Only | SOX 404 Assertion', 0, 1, 'C')
         self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
 
-def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance, logo_bytes=None, company_info=None) -> bytes:
+def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance, logo_bytes=None, company_info=None, query_trail="") -> bytes:
     logo_temp_file = None
     if logo_bytes:
         try:
@@ -292,19 +346,22 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.set_y(y_start + 44)
 
-    # Audit Notes
+    # Audit Notes & Clarification Thread
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.set_text_color(31, 78, 121)
-    pdf.cell(0, 4.5, 'Supervisory Audit Notes:', ln=True)
+    pdf.cell(0, 4.5, 'Supervisory Audit Notes & Resolution Trail:', ln=True)
     pdf.set_font('Helvetica', 'I', 8)
     pdf.set_text_color(60, 60, 60)
+    
     notes_clean = sanitize_pdf_text(signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
+    if query_trail:
+        notes_clean += f" | {sanitize_pdf_text(query_trail)}"
     pdf.multi_cell(0, 4, notes_clean)
 
     pdf.ln(3)
 
     # Tamper-Evident SHA-256 Checksum
-    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref')}_{matched_count}_{fuzzy_count}_{un_a_count}_{un_b_count}_{signoff_data.get('preparer_date')}_{signoff_data.get('reviewer_date')}_{tolerance}"
+    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref')}_{matched_count}_{fuzzy_count}_{un_a_count}_{un_b_count}_{signoff_data.get('preparer_date')}_{signoff_data.get('reviewer_date')}_{tolerance}_{query_trail}"
     doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
 
     pdf.set_fill_color(240, 240, 240)
@@ -322,8 +379,8 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     return result_bytes
 
-# --- Professional SOX 404 & ISA-500 Multi-Tab Audit Workpaper Generator with Verified Sign-Offs & Branding ---
-def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0, company_info=None) -> bytes:
+# --- Professional SOX 404 Multi-Tab Audit Workpaper Generator with Query Trail Column ---
+def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0, company_info=None, query_obj=None) -> bytes:
     output = io.BytesIO()
     timestamp_utc = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -344,6 +401,27 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         top=Side(style="thin", color="D9D9D9"),
         bottom=Side(style="thin", color="D9D9D9")
     )
+
+    # Stamp query thread directly to copies of exception dataframes
+    m_copy = matched_df.copy()
+    f_copy = fuzzy_df.copy()
+    a_copy = un_a_df.copy()
+    b_copy = un_b_df.copy()
+
+    if query_obj and query_obj.get("status") == "APPROVED" and query_obj.get("item_id"):
+        flag_id = str(query_obj["item_id"])
+        trail_entry = f"[REVIEWER {query_obj['reviewer_query_time']}]: {query_obj['reviewer_query']} | [PREPARER {query_obj['preparer_reply_time']}]: {query_obj['preparer_reply']}"
+        
+        for df_target in [f_copy, a_copy, b_copy]:
+            match_col = None
+            for c in df_target.columns:
+                if any(k in str(c).lower() for k in ["id", "invoice", "ref", "trans"]):
+                    match_col = c
+                    break
+            if match_col:
+                df_target["Audit_Clarification_Trail"] = df_target[match_col].apply(
+                    lambda x: trail_entry if str(x) == flag_id else ""
+                )
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         workbook = writer.book
@@ -387,10 +465,10 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             cell.alignment = Alignment(horizontal="center" if col_idx > 1 else "left")
 
         summary_rows = [
-            ("Tier-1 Deterministic Matches (Subledger to External)", len(matched_df), "Cleared"),
-            ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", len(fuzzy_df), "Requires Supervisory Review" if len(fuzzy_df) > 0 else "Cleared"),
-            ("Source A Exceptions (Ledger Missing in External)", len(un_a_df), "Action Required" if len(un_a_df) > 0 else "Cleared"),
-            ("Source B Exceptions (External Missing in Ledger)", len(un_b_df), "Action Required" if len(un_b_df) > 0 else "Cleared"),
+            ("Tier-1 Deterministic Matches (Subledger to External)", len(m_copy), "Cleared"),
+            ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", len(f_copy), "Requires Supervisory Review" if len(f_copy) > 0 else "Cleared"),
+            ("Source A Exceptions (Ledger Missing in External)", len(a_copy), "Action Required" if len(a_copy) > 0 else "Cleared"),
+            ("Source B Exceptions (External Missing in Ledger)", len(b_copy), "Action Required" if len(b_copy) > 0 else "Cleared"),
         ]
 
         for item in summary_rows:
@@ -436,10 +514,10 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary.column_dimensions["C"].width = 65
 
         data_sheets = {
-            "Deterministic Matches": matched_df,
-            "Fuzzy Candidates": fuzzy_df,
-            "Exceptions Source A": un_a_df,
-            "Exceptions Source B": un_b_df
+            "Deterministic Matches": m_copy,
+            "Fuzzy Candidates": f_copy,
+            "Exceptions Source A": a_copy,
+            "Exceptions Source B": b_copy
         }
 
         for sheet_title, df_content in data_sheets.items():
@@ -467,18 +545,17 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 for cell in col:
                     val_str = str(cell.value or "")
                     max_len = max(max_len, len(val_str))
-                ws.column_dimensions[col_letter].width = min(max(max_len + 4, 15), 45)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 4, 15), 55)
 
     return output.getvalue()
 
-# --- Robust Ingestion Engine with Built-in Column Splitting ---
+# --- Ingestion Engine ---
 def robust_read_file(uploaded_file) -> pd.DataFrame:
     filename = uploaded_file.name.lower()
     uploaded_file.seek(0)
     
     if filename.endswith(".csv"):
         raw_bytes = uploaded_file.read()
-        
         text = None
         for enc in ["utf-8-sig", "utf-8", "utf-16", "latin1"]:
             try:
@@ -487,7 +564,6 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
                     break
             except Exception:
                 continue
-                
         if text is None:
             text = str(raw_bytes)
             
@@ -495,13 +571,12 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
         if not lines:
             return pd.DataFrame()
             
-        first_line = lines[0]
         delim = ","
-        if "\t" in first_line:
+        if "\t" in lines[0]:
             delim = "\t"
-        elif ";" in first_line:
+        elif ";" in lines[0]:
             delim = ";"
-        elif "|" in first_line:
+        elif "|" in lines[0]:
             delim = "|"
             
         try:
@@ -534,11 +609,11 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
                             if any(clean_r):
                                 rows.append(clean_r)
         except Exception as e:
-            st.error(f"Failed to read PDF: {str(e)}. Please confirm the file is not password-protected.")
+            st.error(f"Failed to read PDF: {str(e)}.")
             return pd.DataFrame()
 
         if not rows:
-            st.warning("⚠️ No tabular data identified in this PDF. Please confirm it is a digitally generated export rather than a scanned photocopy or flat image.")
+            st.warning("⚠️ No tabular data identified in this PDF.")
             return pd.DataFrame()
 
         headers = [re.sub(r'[^a-zA-Z0-9_]', '', h.replace(" ", "_").lower()) or f"col_{i}" for i, h in enumerate(rows[0])]
@@ -547,7 +622,7 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
         
     return pd.DataFrame()
 
-# --- Sample Data Generator ---
+# --- Sample Test Data ---
 SAMPLE_A_CSV = """Invoice_ID,Vendor_Name,Amount,Posting_Date
 INV-2026-101,Apex Tech Solutions,12500.00,2026-10-01
 INV-2026-102,BlueSky Logistics,8450.50,2026-10-02
@@ -660,9 +735,17 @@ if df_a is not None and df_b is not None:
             "un_b_pl": un_b,
             "tolerance": tolerance
         }
-        # Reset workflow states on every fresh reconciliation run
+        # Reset entire workflow on fresh run
         st.session_state["preparer_completed"] = False
         st.session_state["reviewer_approved"] = False
+        st.session_state["audit_query_thread"] = {
+            "status": "NONE",
+            "item_id": "",
+            "reviewer_query": "",
+            "reviewer_query_time": "",
+            "preparer_reply": "",
+            "preparer_reply_time": ""
+        }
 
     if "recon_results" in st.session_state:
         res = st.session_state["recon_results"]
@@ -678,12 +761,23 @@ if df_a is not None and df_b is not None:
         k3.metric("Source A Exceptions (Ledger)", f"{len(un_a_pd):,} records")
         k4.metric("Source B Exceptions (External)", f"{len(un_b_pd):,} records")
 
-        # -------------------------------------------------------------
-        # Sequential Four-Eyes Governance Sign-Off Workflow
-        # -------------------------------------------------------------
+        # Session tracking state
         is_prep_done = st.session_state.get("preparer_completed", False)
         is_rev_approved = st.session_state.get("reviewer_approved", False)
+        if "audit_query_thread" not in st.session_state:
+            st.session_state["audit_query_thread"] = {
+                "status": "NONE",
+                "item_id": "",
+                "reviewer_query": "",
+                "reviewer_query_time": "",
+                "preparer_reply": "",
+                "preparer_reply_time": ""
+            }
+        query_state = st.session_state["audit_query_thread"]
 
+        # -------------------------------------------------------------
+        # Sequential Governance & Sign-Off Workflow
+        # -------------------------------------------------------------
         with st.expander("✍️ Four-Eyes Internal Governance Sign-Off & Approval Workflow", expanded=True):
             so_col1, so_col2 = st.columns(2)
             now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -693,19 +787,31 @@ if df_a is not None and df_b is not None:
                 st.markdown("##### 👤 Stage 1: Preparer (Analyst / Senior Accountant)")
                 prep_name = st.text_input("Preparer Full Name", value="Senior Recon Analyst", key="so_prep_name", disabled=is_prep_done)
                 prep_id = st.text_input("Employee / System ID", value="FIN-ACC-8921", key="so_prep_id", disabled=is_prep_done)
+                prep_email = st.text_input("Preparer Email Address", value="analyst@company.com", key="so_prep_email", disabled=is_prep_done)
+                rev_target_email = st.text_input("Reviewer Notification Email", value="controller@company.com", key="so_rev_target_email", disabled=is_prep_done)
                 prep_date = st.text_input("Preparation Date & Time (UTC)", value=st.session_state.get("saved_prep_date", now_str), key="so_prep_date", disabled=is_prep_done)
                 prep_signed = st.checkbox("I verify that ledger entries, tolerances, and files are audited.", value=True, key="so_prep_signed", disabled=is_prep_done)
 
                 if not is_prep_done:
-                    if st.button("✅ Mark Preparer Task as Complete", type="primary", use_container_width=True):
+                    if st.button("✅ Mark Preparer Task as Complete & Notify Reviewer", type="primary", use_container_width=True):
                         if not prep_signed:
                             st.error("Preparer verification box must be checked before submission.")
                         else:
                             st.session_state["preparer_completed"] = True
                             st.session_state["saved_prep_name"] = prep_name
                             st.session_state["saved_prep_id"] = prep_id
+                            st.session_state["saved_prep_email"] = prep_email
+                            st.session_state["saved_rev_target_email"] = rev_target_email
                             st.session_state["saved_prep_date"] = prep_date
                             st.session_state["saved_prep_signed"] = prep_signed
+
+                            # Dispatch automated notification to Reviewer
+                            send_workflow_email(
+                                smtp_cfg,
+                                rev_target_email,
+                                "ACTION REQUIRED: Reconciliation Sign-Off Pending - AutoReconFlow",
+                                f"Hello,\n\nReconciliation workpaper has been prepared and submitted by {prep_name} ({prep_id}) at {prep_date}.\n\nPlease review discrepancies and issue supervisory sign-off: https://www.autoreconflow.com\n\nAutoReconFlow Governance Engine"
+                            )
                             st.rerun()
                 else:
                     st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
@@ -722,17 +828,17 @@ if df_a is not None and df_b is not None:
                     wp_ref = "WP-SOX-REC-2026-Q4"
                     audit_notes = "Pending supervisory sign-off."
                 else:
-                    st.markdown("##### 🛡️ Stage 2: Reviewer (Active for Approval)")
-                    st.success("🟢 Preparer has completed their submission. Ready for Supervisory Review.")
+                    st.markdown("##### 🛡️ Stage 2: Reviewer (Active for Evaluation)")
+                    st.success("🟢 Preparer has completed their submission. Ready for Supervisory Evaluation.")
                     rev_name = st.text_input("Reviewer Full Name", value="Finance Controller", key="so_rev_name", disabled=is_rev_approved)
                     rev_title = st.text_input("Role / Designation", value="VP - Financial Reporting & Controls", key="so_rev_title", disabled=is_rev_approved)
                     rev_date = st.text_input("Review Date & Time (UTC)", value=st.session_state.get("saved_rev_date", now_str), key="so_rev_date", disabled=is_rev_approved)
                     rev_verdict = st.selectbox("Supervisory Audit Verdict", ["Approved / Cleared", "Approved with Exceptions Noted", "Under Remediation", "Rejected"], key="so_rev_verdict", disabled=is_rev_approved)
                     wp_ref = st.text_input("Audit Workpaper Reference Code", value="WP-SOX-REC-2026-Q4", key="so_wp_ref", disabled=is_rev_approved)
-                    audit_notes = st.text_area("Supervisory & Control Notes", value="All deterministic matches verified. Discrepancies and exceptions reviewed and reconciled.", key="so_notes", disabled=is_rev_approved)
+                    audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches verified. Exceptions evaluated under tolerable limit.", key="so_notes", disabled=is_rev_approved)
 
-                    if not is_rev_approved:
-                        if st.button("🛡️ Approve & Finalize Supervisory Sign-Off", type="primary", use_container_width=True):
+                    if not is_rev_approved and query_state["status"] not in ["PENDING_CLARIFICATION"]:
+                        if st.button("🛡️ Approve & Finalize Supervisory Sign-Off (No Queries)", type="primary", use_container_width=True):
                             st.session_state["reviewer_approved"] = True
                             st.session_state["saved_rev_name"] = rev_name
                             st.session_state["saved_rev_title"] = rev_title
@@ -741,10 +847,97 @@ if df_a is not None and df_b is not None:
                             st.session_state["saved_wp_ref"] = wp_ref
                             st.session_state["saved_audit_notes"] = audit_notes
                             st.rerun()
-                    else:
+                    elif is_rev_approved:
                         st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
 
-        # Compile final sign-off payload
+        # -------------------------------------------------------------
+        # Line-Item Query, Clarification & Reverse Action Engine
+        # -------------------------------------------------------------
+        if is_prep_done and not is_rev_approved:
+            st.markdown("#### 💬 Supervisory Exception Query & Clarification Thread")
+
+            # Collect IDs for query dropdown
+            disputed_items = []
+            for col_id_candidate in ["Invoice_ID", "Transaction_Ref", "col_0"]:
+                if col_id_candidate in un_b_pd.columns:
+                    disputed_items.extend(un_b_pd[col_id_candidate].astype(str).tolist())
+                if col_id_candidate in fuzzy_pd.columns:
+                    disputed_items.extend(fuzzy_pd[col_id_candidate].astype(str).tolist())
+                if col_id_candidate in un_a_pd.columns:
+                    disputed_items.extend(un_a_pd[col_id_candidate].astype(str).tolist())
+            disputed_items = sorted(list(set([x for x in disputed_items if x])))
+
+            # Scenario A: Reviewer raises a query
+            if query_state["status"] in ["NONE", "RESUBMITTED"]:
+                with st.container():
+                    st.info("💡 Reviewer Option: Raise a specific transaction query to send back to the Preparer.")
+                    sel_item = st.selectbox("Select Line Item Requiring Clarification:", options=disputed_items, key="sel_query_item")
+                    q_text = st.text_area("Reviewer Query / Required Explanation:", placeholder="e.g., Variance of 50.00 observed. Please provide bank swift advice or explain timing delay.", key="rev_query_input")
+                    
+                    if st.button("❓ Send Query Back to Preparer for Clarification", type="secondary"):
+                        if not q_text.strip():
+                            st.error("Please enter a query description before sending.")
+                        else:
+                            query_state["status"] = "PENDING_CLARIFICATION"
+                            query_state["item_id"] = sel_item
+                            query_state["reviewer_query"] = q_text
+                            query_state["reviewer_query_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+                            # Send email trigger back to Preparer
+                            target_prep_mail = st.session_state.get("saved_prep_email", "analyst@company.com")
+                            send_workflow_email(
+                                smtp_cfg,
+                                target_prep_mail,
+                                f"ACTION REQUIRED: Reviewer Clarification Query [{sel_item}] - AutoReconFlow",
+                                f"Hello,\n\nThe Reviewer has queried item [{sel_item}]:\n\n\"{q_text}\"\n\nPlease log in to provide your explanation: https://www.autoreconflow.com\n\nAutoReconFlow Audit Engine"
+                            )
+                            st.rerun()
+
+            # Scenario B: Preparer responds to the query
+            elif query_state["status"] == "PENDING_CLARIFICATION":
+                st.warning(f"⚠️ Action Required by Preparer: Reviewer queried item [{query_state['item_id']}]")
+                st.markdown(f"**Reviewer Observation ({query_state['reviewer_query_time']}):**")
+                st.markdown(f"> *\"{query_state['reviewer_query']}\"*")
+
+                prep_reply = st.text_area("Preparer Explanation / Response:", placeholder="e.g., Confirmed with Treasury team. Difference represents swift processing fee ref #8810; approved by Controller.", key="prep_reply_input")
+
+                if st.button("📤 Submit Explanation Back to Reviewer", type="primary"):
+                    if not prep_reply.strip():
+                        st.error("Please enter an explanation before resubmitting.")
+                    else:
+                        query_state["status"] = "RESUBMITTED"
+                        query_state["preparer_reply"] = prep_reply
+                        query_state["preparer_reply_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+                        # Send notification to Reviewer
+                        target_rev_mail = st.session_state.get("saved_rev_target_email", "controller@company.com")
+                        send_workflow_email(
+                            smtp_cfg,
+                            target_rev_mail,
+                            f"EXPLANATION SUBMITTED: Item [{query_state['item_id']}] Ready for Approval - AutoReconFlow",
+                            f"Hello,\n\nThe Preparer has provided an explanation for [{query_state['item_id']}]:\n\n\"{prep_reply}\"\n\nPlease review and approve: https://www.autoreconflow.com\n\nAutoReconFlow Audit Engine"
+                        )
+                        st.rerun()
+
+            # Scenario C: Reviewer evaluates response and approves
+            if query_state["status"] == "RESUBMITTED":
+                st.success(f"📥 Preparer Explanation Received for [{query_state['item_id']}].")
+                st.markdown(f"**Reviewer Query:** *\"{query_state['reviewer_query']}\"*")
+                st.markdown(f"**Preparer Explanation ({query_state['preparer_reply_time']}):**")
+                st.markdown(f"> **\"{query_state['preparer_reply']}\"**")
+
+                if st.button("🛡️ Accept Explanation & Formally Approve Workpaper", type="primary"):
+                    st.session_state["reviewer_approved"] = True
+                    query_state["status"] = "APPROVED"
+                    st.session_state["saved_rev_name"] = rev_name
+                    st.session_state["saved_rev_title"] = rev_title
+                    st.session_state["saved_rev_date"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                    st.session_state["saved_rev_verdict"] = "Approved with Clarifications Noted"
+                    st.session_state["saved_wp_ref"] = wp_ref
+                    st.session_state["saved_audit_notes"] = audit_notes
+                    st.rerun()
+
+        # Build payload
         signoff_payload = {
             "preparer_name": st.session_state.get("saved_prep_name", prep_name),
             "preparer_id": st.session_state.get("saved_prep_id", prep_id),
@@ -764,8 +957,12 @@ if df_a is not None and df_b is not None:
             "uid": company_uid
         }
 
+        query_trail_summary = ""
+        if query_state.get("status") == "APPROVED" and query_state.get("item_id"):
+            query_trail_summary = f"Item {query_state['item_id']}: Queried ({query_state['reviewer_query']}) -> Clarified ({query_state['preparer_reply']}) -> Cleared."
+
         # -------------------------------------------------------------
-        # Official Export Hub: Workpapers unlock upon Reviewer Approval
+        # Official Export Hub: Workpapers Unlock Upon Reviewer Approval
         # -------------------------------------------------------------
         st.markdown("#### 📦 Audit Deliverables & Certification Hub")
         exp_col1, exp_col2 = st.columns(2)
@@ -773,7 +970,8 @@ if df_a is not None and df_b is not None:
         with exp_col1:
             if is_rev_approved:
                 excel_bytes = generate_consolidated_workbook(
-                    matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, tolerance=res["tolerance"], company_info=active_company_info
+                    matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
+                    tolerance=res["tolerance"], company_info=active_company_info, query_obj=query_state
                 )
                 st.download_button(
                     label="📊 Download Final SOX Audit Workpaper (.xlsx)",
@@ -784,14 +982,14 @@ if df_a is not None and df_b is not None:
                     key="btn_download_master_excel"
                 )
             else:
-                st.info("🔒 Complete Preparer submission and Reviewer approval above to generate the Excel Workpaper.")
+                st.info("🔒 Excel Workpaper unlocks automatically upon complete Reviewer approval.")
 
         with exp_col2:
             if is_rev_approved:
                 logo_file_bytes = uploaded_logo.getvalue() if uploaded_logo is not None else None
                 pdf_bytes = generate_pdf_signoff_certificate(
                     len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
-                    logo_bytes=logo_file_bytes, company_info=active_company_info
+                    logo_bytes=logo_file_bytes, company_info=active_company_info, query_trail=query_trail_summary
                 )
                 st.download_button(
                     label="📜 Download Official Signed PDF Audit Certificate",

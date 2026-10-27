@@ -31,6 +31,31 @@ st.sidebar.divider()
 st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
 st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
 
+# --- Multi-Tab Consolidated Excel Generator ---
+def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df) -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        summary_df = pd.DataFrame({
+            "Reconciliation Category": [
+                "100% Deterministic Matched",
+                "Fuzzy Review Candidates",
+                "Source A Exceptions (Ledger Missing in Bank)",
+                "Source B Exceptions (Bank Missing in Ledger)"
+            ],
+            "Record Count": [
+                len(matched_df),
+                len(fuzzy_df),
+                len(un_a_df),
+                len(un_b_df)
+            ]
+        })
+        summary_df.to_excel(writer, sheet_name="Recon Summary", index=False)
+        matched_df.to_excel(writer, sheet_name="Matched Records", index=False)
+        fuzzy_df.to_excel(writer, sheet_name="Fuzzy Candidates", index=False)
+        un_a_df.to_excel(writer, sheet_name="Exceptions Source A", index=False)
+        un_b_df.to_excel(writer, sheet_name="Exceptions Source B", index=False)
+    return output.getvalue()
+
 # --- Robust Ingestion Engine with Built-in Column Splitting ---
 def robust_read_file(uploaded_file) -> pd.DataFrame:
     filename = uploaded_file.name.lower()
@@ -39,7 +64,6 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
     if filename.endswith(".csv"):
         raw_bytes = uploaded_file.read()
         
-        # Try multiple standard decodings
         text = None
         for enc in ["utf-8-sig", "utf-8", "utf-16", "latin1"]:
             try:
@@ -52,12 +76,10 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
         if text is None:
             text = str(raw_bytes)
             
-        # Parse lines
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return pd.DataFrame()
             
-        # Sniff delimiter from first line
         first_line = lines[0]
         delim = ","
         if "\t" in first_line:
@@ -72,12 +94,10 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
         except Exception:
             df = pd.read_csv(io.StringIO(text))
             
-        # Self-healing: If all columns got merged into 1 column name with commas
         if len(df.columns) == 1 and ("," in str(df.columns[0]) or ";" in str(df.columns[0])):
             actual_delim = "," if "," in str(df.columns[0]) else ";"
             df = pd.read_csv(io.StringIO(text), sep=actual_delim)
             
-        # Clean clean headers
         df.columns = [str(c).strip().strip('"').strip("'").replace("\ufeff", "") for c in df.columns]
         return df.reset_index(drop=True)
         
@@ -208,42 +228,89 @@ if df_a is not None and df_b is not None:
                 st.error(f"Reconciliation error: {str(e)}")
                 st.stop()
 
+        # Convert Polars DataFrames to Pandas for clean export
+        matched_pd = matched.to_pandas()
+        fuzzy_pd = fuzzy.to_pandas()
+        un_a_pd = un_a.to_pandas()
+        un_b_pd = un_b.to_pandas()
+
         st.subheader("📊 Reconciliation Summary")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("100% Deterministic Matched", f"{len(matched):,} records")
-        k2.metric("Fuzzy Candidates", f"{len(fuzzy):,} records")
-        k3.metric("Unmatched (Source A)", f"{len(un_a):,} records")
-        k4.metric("Unmatched (Source B)", f"{len(un_b):,} records")
+        k1.metric("100% Deterministic Matched", f"{len(matched_pd):,} records")
+        k2.metric("Fuzzy Candidates", f"{len(fuzzy_pd):,} records")
+        k3.metric("Unmatched (Source A)", f"{len(un_a_pd):,} records")
+        k4.metric("Unmatched (Source B)", f"{len(un_b_pd):,} records")
 
-        tab1, tab2, tab3 = st.tabs(["✅ Matched Records", "🔍 Fuzzy Review", "⚠️ Exceptions"])
+        # Top-level Consolidated Multi-Tab Excel Export Button
+        excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd)
+        st.download_button(
+            label="📦 Download Complete Consolidated Workbook (Excel .xlsx)",
+            data=excel_bytes,
+            file_name="AutoReconFlow_Consolidated_Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_download_master_excel"
+        )
+        st.write("")
+
+        # Distinct 4 tabs: Matched, Fuzzy, and Separate Exceptions for Source A & B
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "✅ Matched Records",
+            "🔍 Fuzzy Review",
+            "⚠️ Exceptions: Source A (Ledger)",
+            "⚠️ Exceptions: Source B (External / Bank)"
+        ])
 
         with tab1:
-            if len(matched) > 0:
-                st.dataframe(matched.to_pandas(), use_container_width=True)
-                st.download_button("📥 Download Matched CSV", matched.write_csv(), "matched_ledger.csv")
+            if len(matched_pd) > 0:
+                st.dataframe(matched_pd, use_container_width=True)
+                st.download_button(
+                    label="📥 Download Matched CSV",
+                    data=matched.write_csv(),
+                    file_name="matched_records.csv",
+                    mime="text/csv",
+                    key="btn_matched_csv"
+                )
             else:
-                st.info("No exact matches found under the current settings.")
+                st.info("No exact matches found under current settings.")
 
         with tab2:
-            if len(fuzzy) > 0:
-                st.dataframe(fuzzy.to_pandas(), use_container_width=True)
-                st.download_button("📥 Download Fuzzy Review CSV", fuzzy.write_csv(), "fuzzy_candidates.csv")
+            if len(fuzzy_pd) > 0:
+                st.dataframe(fuzzy_pd, use_container_width=True)
+                st.download_button(
+                    label="📥 Download Fuzzy Review CSV",
+                    data=fuzzy.write_csv(),
+                    file_name="fuzzy_candidates.csv",
+                    mime="text/csv",
+                    key="btn_fuzzy_csv"
+                )
             else:
                 st.info("No fuzzy discrepancies found.")
 
         with tab3:
-            ex1, ex2 = st.columns(2)
-            with ex1:
-                st.markdown("**Source A Missing in Source B**")
-                if len(un_a) > 0:
-                    st.dataframe(un_a.to_pandas(), use_container_width=True)
-                    st.download_button("📥 Download Source A Exceptions", un_a.write_csv(), "unmatched_source_a.csv")
-                else:
-                    st.success("All Source A items accounted for.")
-            with ex2:
-                st.markdown("**Source B Missing in Source A**")
-                if len(un_b) > 0:
-                    st.dataframe(un_b.to_pandas(), use_container_width=True)
-                    st.download_button("📥 Download Source B Exceptions", un_b.write_csv(), "unmatched_source_b.csv")
-                else:
-                    st.success("All Source B items accounted for.")
+            if len(un_a_pd) > 0:
+                st.markdown("**Source A Entries Missing in Source B (Unmatched Ledger)**")
+                st.dataframe(un_a_pd, use_container_width=True)
+                st.download_button(
+                    label="📥 Download Source A Exceptions CSV",
+                    data=un_a.write_csv(),
+                    file_name="exceptions_source_a_ledger.csv",
+                    mime="text/csv",
+                    key="btn_un_a_csv"
+                )
+            else:
+                st.success("All Source A items accounted for (0 exceptions).")
+
+        with tab4:
+            if len(un_b_pd) > 0:
+                st.markdown("**Source B Entries Missing in Source A (Unmatched Bank/Portal)**")
+                st.dataframe(un_b_pd, use_container_width=True)
+                st.download_button(
+                    label="📥 Download Source B Exceptions CSV",
+                    data=un_b.write_csv(),
+                    file_name="exceptions_source_b_external.csv",
+                    mime="text/csv",
+                    key="btn_un_b_csv"
+                )
+            else:
+                st.success("All Source B items accounted for (0 exceptions).")

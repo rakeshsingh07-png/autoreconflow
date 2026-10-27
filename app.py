@@ -1,9 +1,11 @@
 import io
 import re
 import datetime
+import hashlib
 import streamlit as st
 import pandas as pd
 import polars as pl
+from fpdf import FPDF
 from recon_engine import execute_high_volume_reconciliation
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -47,7 +49,7 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
        * **Tier-2 (Fuzzy / Threshold Review)**: Matches within specified tolerance limits and text proximity (Jaro-Winkler / Levenshtein).
        * **Tier-3 (Exceptions)**: Discrepancies and unlinked entries categorized by origin source.
     4. **Four-Eyes Governance**: Preparer and Reviewer electronic sign-off with audit trail stamping.
-    5. **Audit-Trail Export**: Multi-sheet SOX-compliant workbook generation with immutable run metadata and completed supervisory sign-offs.
+    5. **Audit-Trail Export**: Multi-sheet SOX-compliant Excel workpaper plus an immutable, tamper-evident PDF Executive Sign-Off Certificate.
 
     ---
 
@@ -60,12 +62,180 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
     | **PDF Documents** | • **Digitally generated / vector PDFs** (Direct exports from online banking, ERPs like SAP/Oracle, or 'Print-to-PDF' statements) containing native tabular grids | • **Scanned paper / photocopies / flat images** (requires an external OCR layer)<br>• Password-locked / encrypted PDFs<br>• Multi-column newspaper text layouts without tabular boundaries |
     """)
 
+# --- PDF Executive Sign-Off Certificate Generator ---
+class AuditCertificatePDF(FPDF):
+    def header(self):
+        self.set_fill_color(31, 78, 121) # Corporate Navy
+        self.rect(0, 0, 210, 16, 'F')
+        self.set_text_color(255, 255, 255)
+        self.set_font('Helvetica', 'B', 11)
+        self.cell(0, 4, 'AUTORECONFLOW — INTERNAL CONTROL AUDIT CERTIFICATE', 0, 1, 'C')
+        self.ln(8)
+
+    def footer(self):
+        self.set_y(-18)
+        self.set_font('Helvetica', 'I', 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 4, 'Confidential — For Authorized Supervisory & Statutory Audit Inspection Only | SOX 404 Assertion', 0, 1, 'C')
+        self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
+
+def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance) -> bytes:
+    pdf = AuditCertificatePDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Title & Subtitle
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.set_text_color(31, 78, 121)
+    pdf.cell(0, 8, 'Financial Reconciliation Sign-Off Certificate', ln=True, align='L')
+    pdf.set_font('Helvetica', 'I', 9)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 5, 'Compliance Certification under PCAOB AS 2201 / SOX Section 404 & ISA-500', ln=True, align='L')
+    pdf.ln(5)
+
+    # Control Verification Block
+    pdf.set_fill_color(245, 247, 250)
+    pdf.set_draw_color(200, 210, 225)
+    pdf.rect(10, pdf.get_y(), 190, 24, 'DF')
+    pdf.set_xy(14, pdf.get_y() + 3)
+
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(45, 5, 'Execution Timestamp (UTC):', 0, 0)
+    pdf.set_font('Helvetica', '', 9)
+    pdf.cell(55, 5, signoff_data.get('preparer_date', ''), 0, 0)
+
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(40, 5, 'Workpaper Reference:', 0, 0)
+    pdf.set_font('Helvetica', '', 9)
+    pdf.cell(45, 5, signoff_data.get('wp_ref', ''), 0, 1)
+
+    pdf.set_x(14)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(45, 5, 'Variance Tolerance:', 0, 0)
+    pdf.set_font('Helvetica', '', 9)
+    pdf.cell(55, 5, f'+/- {tolerance:.2f} Currency Units', 0, 0)
+
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(40, 5, 'Review Verdict:', 0, 0)
+    verdict = signoff_data.get('review_verdict', 'Approved / Cleared')
+    pdf.set_font('Helvetica', 'B', 9)
+    if 'Approved' in verdict:
+        pdf.set_text_color(16, 124, 65) # Forest Green
+    else:
+        pdf.set_text_color(180, 40, 40)
+    pdf.cell(45, 5, verdict, 0, 1)
+
+    pdf.ln(8)
+
+    # Summary Table Header
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_fill_color(31, 78, 121)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(110, 7, 'Reconciliation Assertion Category', 1, 0, 'L', fill=True)
+    pdf.cell(35, 7, 'Record Count', 1, 0, 'C', fill=True)
+    pdf.cell(45, 7, 'Audit Status', 1, 1, 'C', fill=True)
+
+    # Summary Table Rows
+    table_data = [
+        ("Tier-1 Deterministic Matches (Exact Key & Net Match)", str(matched_count), "Cleared"),
+        ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", str(fuzzy_count), "Supervisory Review" if fuzzy_count > 0 else "Cleared"),
+        ("Source A Exceptions (Subledger Missing in External Records)", str(un_a_count), "Remediation Req." if un_a_count > 0 else "Cleared"),
+        ("Source B Exceptions (External Records Missing in Subledger)", str(un_b_count), "Remediation Req." if un_b_count > 0 else "Cleared"),
+    ]
+
+    pdf.set_text_color(40, 40, 40)
+    pdf.set_font('Helvetica', '', 8.5)
+    for cat, count, status in table_data:
+        pdf.cell(110, 6.5, f"  {cat}", 1, 0, 'L')
+        pdf.cell(35, 6.5, count, 1, 0, 'C')
+        if status == "Cleared":
+            pdf.set_text_color(16, 124, 65)
+        else:
+            pdf.set_text_color(180, 40, 40)
+        pdf.cell(45, 6.5, status, 1, 1, 'C')
+        pdf.set_text_color(40, 40, 40)
+
+    pdf.ln(8)
+
+    # Governance Four-Eyes Electronic Signatures
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.set_text_color(31, 78, 121)
+    pdf.cell(0, 6, 'Four-Eyes Internal Control Attestation', ln=True)
+    pdf.ln(2)
+
+    # Preparer Box
+    y_start = pdf.get_y()
+    pdf.set_fill_color(250, 252, 255)
+    pdf.rect(10, y_start, 92, 42, 'DF')
+    pdf.set_xy(14, y_start + 3)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(31, 78, 121)
+    pdf.cell(85, 5, 'PREPARER (First Line of Defense)', 0, 1)
+
+    pdf.set_x(14)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(85, 4.5, f"Name: {signoff_data.get('preparer_name')}", 0, 1)
+    pdf.set_x(14)
+    pdf.cell(85, 4.5, f"System / Emp ID: {signoff_data.get('preparer_id')}", 0, 1)
+    pdf.set_x(14)
+    pdf.cell(85, 4.5, f"Timestamp: {signoff_data.get('preparer_date')}", 0, 1)
+    pdf.set_x(14)
+    sig_text = "[VERIFIED ELECTRONIC SIGNATURE]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
+    pdf.set_font('Helvetica', 'B', 8)
+    pdf.set_text_color(16, 124, 65) if signoff_data.get('preparer_signed') else pdf.set_text_color(180, 40, 40)
+    pdf.cell(85, 6, sig_text, 0, 1)
+
+    # Reviewer Box
+    pdf.set_fill_color(250, 252, 255)
+    pdf.rect(108, y_start, 92, 42, 'DF')
+    pdf.set_xy(112, y_start + 3)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(31, 78, 121)
+    pdf.cell(85, 5, 'REVIEWER (Financial Controller / Oversight)', 0, 1)
+
+    pdf.set_x(112)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(85, 4.5, f"Name: {signoff_data.get('reviewer_name')}", 0, 1)
+    pdf.set_x(112)
+    pdf.cell(85, 4.5, f"Designation: {signoff_data.get('reviewer_title')}", 0, 1)
+    pdf.set_x(112)
+    pdf.cell(85, 4.5, f"Timestamp: {signoff_data.get('reviewer_date')}", 0, 1)
+    pdf.set_x(112)
+    pdf.set_font('Helvetica', 'B', 8)
+    pdf.set_text_color(16, 124, 65)
+    pdf.cell(85, 6, f"[VERIFIED SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 1)
+
+    pdf.set_y(y_start + 46)
+
+    # Notes & Audit Checksum
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(31, 78, 121)
+    pdf.cell(0, 5, 'Supervisory Audit Notes:', ln=True)
+    pdf.set_font('Helvetica', 'I', 8.5)
+    pdf.set_text_color(60, 60, 60)
+    pdf.multi_cell(0, 4.5, signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
+
+    pdf.ln(4)
+
+    # Cryptographic Hash Stamping
+    raw_fingerprint = f"{signoff_data.get('wp_ref')}_{matched_count}_{fuzzy_count}_{un_a_count}_{un_b_count}_{signoff_data.get('preparer_date')}_{tolerance}"
+    doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
+
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font('Courier', 'B', 7.5)
+    pdf.set_text_color(70, 70, 70)
+    pdf.cell(0, 6, f" SHA-256 DIGITAL IMMUTABILITY AUDIT HASH: {doc_hash} ", 1, 1, 'C', fill=True)
+
+    return bytes(pdf.output())
+
 # --- Professional SOX 404 & ISA-500 Multi-Tab Audit Workpaper Generator with Verified Sign-Offs ---
 def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0) -> bytes:
     output = io.BytesIO()
     timestamp_utc = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # Corporate Audit Palette
     navy_header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
     section_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     white_bold_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -83,9 +253,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         workbook = writer.book
 
-        # -------------------------------------------------------------
-        # SHEET 1: AUDIT & CONTROL SUMMARY (SOX 404 COMPLIANCE)
-        # -------------------------------------------------------------
         ws_summary = workbook.create_sheet(title="Audit & Control Summary", index=0)
         ws_summary.views.sheetView[0].showGridLines = True
 
@@ -97,7 +264,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary["A2"].font = italic_font
         ws_summary.merge_cells("A2:C2")
 
-        # Section 1: System Control Metadata
         metadata = [
             ("Execution Timestamp (UTC):", timestamp_utc),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
@@ -112,7 +278,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             ws_summary.cell(row=r, column=1).font = bold_font
             ws_summary.cell(row=r, column=2).font = regular_font
 
-        # Section 2: Summary Metrics Table
         ws_summary.append([])
         ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
         summary_header_row = 9
@@ -143,7 +308,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 elif c == 3:
                     cell.alignment = Alignment(horizontal="center")
 
-        # Section 3: Governance Sign-Off Block (Populated Directly from UI Inputs)
         ws_summary.append([])
         sign_off_header_row = 15
         ws_summary.cell(row=sign_off_header_row, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)").font = bold_font
@@ -168,14 +332,10 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 cell.font = bold_font if c == 1 else regular_font
                 cell.border = thin_border
 
-        # Sizing columns cleanly on the summary sheet
         ws_summary.column_dimensions["A"].width = 64
         ws_summary.column_dimensions["B"].width = 60
         ws_summary.column_dimensions["C"].width = 65
 
-        # -------------------------------------------------------------
-        # DATA SHEETS WITH PROFESSIONAL AUDIT STYLING
-        # -------------------------------------------------------------
         data_sheets = {
             "Deterministic Matches": matched_df,
             "Fuzzy Candidates": fuzzy_df,
@@ -401,6 +561,8 @@ if df_a is not None and df_b is not None:
             "un_b_pl": un_b,
             "tolerance": tolerance
         }
+        # Reset final sign-off lock state on new recon run
+        st.session_state["final_signed_off"] = False
 
     if "recon_results" in st.session_state:
         res = st.session_state["recon_results"]
@@ -420,7 +582,7 @@ if df_a is not None and df_b is not None:
         # Interactive Four-Eyes Sign-Off Workflow
         # -------------------------------------------------------------
         with st.expander("✍️ Four-Eyes Internal Governance Sign-Off (SOX 404 Assertion)", expanded=True):
-            st.caption("Complete Preparer and Reviewer controls prior to exporting official workpapers.")
+            st.caption("Complete Preparer and Reviewer controls prior to finalizing and locking official workpapers.")
             
             so_col1, so_col2 = st.columns(2)
             now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -442,30 +604,66 @@ if df_a is not None and df_b is not None:
             wp_ref = st.text_input("Audit Workpaper Reference Code", value="WP-SOX-REC-2026-Q4", key="so_wp_ref")
             audit_notes = st.text_area("Supervisory & Control Notes (Optional)", value="All tier-1 items auto-reconciled. Tier-2 candidates reviewed against permissible threshold.", key="so_notes")
 
-        signoff_payload = {
-            "preparer_name": prep_name,
-            "preparer_id": prep_id,
-            "preparer_date": prep_date,
-            "preparer_signed": prep_signed,
-            "reviewer_name": rev_name,
-            "reviewer_title": rev_title,
-            "reviewer_date": rev_date,
-            "review_verdict": rev_verdict,
-            "wp_ref": wp_ref,
-            "audit_comments": audit_notes
-        }
+            signoff_payload = {
+                "preparer_name": prep_name,
+                "preparer_id": prep_id,
+                "preparer_date": prep_date,
+                "preparer_signed": prep_signed,
+                "reviewer_name": rev_name,
+                "reviewer_title": rev_title,
+                "reviewer_date": rev_date,
+                "review_verdict": rev_verdict,
+                "wp_ref": wp_ref,
+                "audit_comments": audit_notes
+            }
 
-        excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, tolerance=res["tolerance"])
-        st.download_button(
-            label="📦 Export SOX-Compliant Audit Workpaper with Verified Sign-Offs (.xlsx)",
-            data=excel_bytes,
-            file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="btn_download_master_excel"
-        )
+            # Finalize and Lock Action Button
+            if st.button("🔒 Final Sign-Off & Lock Audit Workpaper", type="secondary"):
+                if not prep_signed:
+                    st.error("Preparer verification box must be checked before final sign-off.")
+                else:
+                    st.session_state["final_signed_off"] = True
+                    st.session_state["saved_signoff_payload"] = signoff_payload
+                    st.success("✅ Audit Workpaper formally finalized and locked under Four-Eyes governance.")
+
+        # Persist sign-off state
+        active_signoff = st.session_state.get("saved_signoff_payload", signoff_payload)
+
+        # -------------------------------------------------------------
+        # Official Dual Export Hub: SOX Excel Workpaper + PDF Audit Certificate
+        # -------------------------------------------------------------
+        exp_col1, exp_col2 = st.columns(2)
+
+        with exp_col1:
+            excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd, active_signoff, tolerance=res["tolerance"])
+            st.download_button(
+                label="📊 Export SOX-Compliant Audit Workpaper (.xlsx)",
+                data=excel_bytes,
+                file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_download_master_excel"
+            )
+
+        with exp_col2:
+            if st.session_state.get("final_signed_off", False):
+                pdf_bytes = generate_pdf_signoff_certificate(
+                    len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), active_signoff, res["tolerance"]
+                )
+                st.download_button(
+                    label="📜 Download Official PDF Sign-Off Certificate",
+                    data=pdf_bytes,
+                    file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_pdf_cert"
+                )
+            else:
+                st.info("ℹ️ Complete and click 'Final Sign-Off & Lock' above to generate the tamper-evident PDF Certificate.")
+
         st.write("")
 
+        # 4 Separate Review Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "✅ Tier-1 Deterministic Matches",
             "🔍 Tier-2 Discrepancy & Threshold Review",

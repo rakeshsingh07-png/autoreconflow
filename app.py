@@ -35,6 +35,37 @@ st.sidebar.divider()
 st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
 st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
 
+# --- Enterprise User Manual & Technical Ingestion Guidelines ---
+with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard)", expanded=False):
+    st.markdown("""
+    ### 1. Architectural Overview & Workflow
+    AutoReconFlow operates a deterministic, 3-tier matching engine powered by Polars:
+    1. **Data Ingestion**: Files from Source A (Internal Books/Ledger) and Source B (Bank/Counterparty/Tax Portal) are parsed into memory.
+    2. **Field Normalization & Sanitization**: Strings are trimmed, special characters removed, and numeric values converted to standard floats.
+    3. **Three-Tier Matching**:
+       * **Tier-1 (Deterministic)**: 100% exact match on Reference ID and Amount.
+       * **Tier-2 (Fuzzy / Threshold Review)**: Matches within specified tolerance limits and text proximity (Jaro-Winkler / Levenshtein).
+       * **Tier-3 (Exceptions)**: Discrepancies and unlinked entries categorized by origin source.
+    4. **Audit-Trail Export**: Multi-sheet SOX-compliant workbook generation with immutable run metadata and supervisory sign-off sections.
+
+    ---
+
+    ### 2. Supported vs. Unsupported File Types
+
+    | File Category | Supported Inputs (✅ Accepted) | Unsupported Inputs (❌ Not Accepted) |
+    | :--- | :--- | :--- |
+    | **CSV** | • Delimited by comma (`,`), semicolon (`;`), tab (`\\t`), or pipe (`\|`)<br>• UTF-8, UTF-8-BOM, UTF-16, Latin-1 encodings | • Password-protected / encrypted CSVs<br>• Corrupt or unclosed quote delimiters |
+    | **Excel** | • Modern `.xlsx` workbooks<br>• Legacy `.xls` spreadsheets | • Password-protected Excel files<br>• Macro-enabled dynamic sheets that modify schemas |
+    | **PDF Documents** | • **Digitally generated / vector PDFs** (Direct exports from online banking, ERPs like SAP/Oracle, or 'Print-to-PDF' statements) containing native tabular grids | • **Scanned paper / photocopies / flat images** (requires an external OCR layer)<br>• Password-locked / encrypted PDFs<br>• Multi-column newspaper text layouts without tabular boundaries |
+
+    ---
+
+    ### 3. File Preparation Checklist for Highest Accuracy
+    * **Header Rows**: Ensure the first row of your table contains descriptive column titles (e.g., `Invoice_ID`, `Party_Name`, `Amount`).
+    * **Amount Formats**: Clean numeric strings (e.g., `12500.00` or `12,500.00`) are automatically parsed. Avoid mixing currency symbols in the same cell as the digits (prefer `12500.00` over `USD 12500.00`).
+    * **Transaction Identifiers**: Invoices, cheques, or reference codes should be unique per transaction where possible.
+    """)
+
 # --- Professional SOX 404 & ISA-500 Multi-Tab Audit Workpaper Generator ---
 def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, tolerance=1.0) -> bytes:
     output = io.BytesIO()
@@ -68,7 +99,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, toler
         ws_summary["A2"] = "SOX 404 / ISA-500 Standard Financial Statement Assertion Audit Trail"
         ws_summary["A2"].font = Font(name="Calibri", size=10, italic=True, color="595959")
 
-        # Metadata Block
         metadata = [
             ("Execution Timestamp (UTC):", timestamp_utc),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
@@ -83,7 +113,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, toler
             ws_summary.cell(row=r, column=1).font = bold_font
             ws_summary.cell(row=r, column=2).font = regular_font
 
-        # Summary Metrics Table
         ws_summary.append([])
         ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
         summary_header_row = 9
@@ -114,7 +143,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, toler
                 elif c == 3:
                     cell.alignment = Alignment(horizontal="center")
 
-        # Governance Sign-Off Block (Four-Eyes Principle)
+        # Governance Sign-Off Block
         sign_off_start = 16
         ws_summary.cell(row=sign_off_start, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)").font = bold_font
         ws_summary.cell(row=sign_off_start, column=1).fill = section_fill
@@ -162,7 +191,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, toler
                     if isinstance(cell.value, (int, float)):
                         cell.number_format = "#,##0.00"
 
-        # Auto-adjust column widths
+        # Auto-fit column widths
         for sheetname in writer.sheets:
             ws = writer.sheets[sheetname]
             for col in ws.columns:
@@ -230,16 +259,23 @@ def robust_read_file(uploaded_file) -> pd.DataFrame:
     elif filename.endswith(".pdf"):
         import pdfplumber
         rows = []
-        with pdfplumber.open(uploaded_file) as pdf:
-            for page in pdf.pages:
-                tables = page.extract_tables()
-                for table in tables:
-                    for r in table:
-                        clean_r = [str(c).strip() if c is not None else "" for c in r]
-                        if any(clean_r):
-                            rows.append(clean_r)
-        if not rows:
+        try:
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        for r in table:
+                            clean_r = [str(c).strip() if c is not None else "" for c in r]
+                            if any(clean_r):
+                                rows.append(clean_r)
+        except Exception as e:
+            st.error(f"Failed to read PDF: {str(e)}. Please confirm the file is not password-protected.")
             return pd.DataFrame()
+
+        if not rows:
+            st.warning("⚠️ No tabular data identified in this PDF. Please confirm it is a digitally generated export rather than a scanned photocopy or flat image.")
+            return pd.DataFrame()
+
         headers = [re.sub(r'[^a-zA-Z0-9_]', '', h.replace(" ", "_").lower()) or f"col_{i}" for i, h in enumerate(rows[0])]
         df = pd.DataFrame(rows[1:], columns=headers)
         return df.reset_index(drop=True)

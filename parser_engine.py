@@ -5,33 +5,28 @@ import pandas as pd
 import pdfplumber
 
 def parse_to_polars(uploaded_file) -> pl.DataFrame:
-    """Reads CSV, Excel, or PDF and returns a clean, multi-column Polars DataFrame."""
+    """Reads CSV, Excel, or PDF into a clean, multi-column Polars DataFrame."""
     filename = uploaded_file.name.lower()
+    uploaded_file.seek(0)
     
     if filename.endswith(".csv"):
-        uploaded_file.seek(0)
-        content = uploaded_file.read()
-        # Handle string or bytes decoding
-        if isinstance(content, bytes):
-            # Try utf-8 first, fallback to latin1
-            try:
-                text_data = content.decode("utf-8")
-            except UnicodeDecodeError:
-                text_data = content.decode("latin1")
-        else:
-            text_data = str(content)
+        try:
+            # Read with pandas engine first for bulletproof CSV parsing
+            pdf = pd.read_csv(uploaded_file, sep=None, engine='python')
+        except Exception:
+            uploaded_file.seek(0)
+            pdf = pd.read_csv(uploaded_file, encoding="latin1")
             
-        # Wrap in io.StringIO to ensure Polars accurately detects the comma delimiter
-        return pl.read_csv(io.StringIO(text_data), separator=",", ignore_errors=True)
+        # Clean column names (strip whitespace and surrounding quotes)
+        pdf.columns = [str(col).strip().strip('"').strip("'") for col in pdf.columns]
+        return pl.from_pandas(pdf)
         
     elif filename.endswith((".xlsx", ".xls")):
-        uploaded_file.seek(0)
-        # Read Excel via Pandas then convert to Polars
         pdf = pd.read_excel(uploaded_file)
+        pdf.columns = [str(col).strip() for col in pdf.columns]
         return pl.from_pandas(pdf)
         
     elif filename.endswith(".pdf"):
-        uploaded_file.seek(0)
         return extract_pdf_table_to_polars(uploaded_file)
         
     else:
@@ -52,7 +47,6 @@ def extract_pdf_table_to_polars(pdf_file) -> pl.DataFrame:
     if not rows:
         return pl.DataFrame()
         
-    # Find table header row
     header_idx = 0
     keywords = ["date", "particulars", "description", "amount", "balance", "debit", "credit", "ref"]
     for idx, row in enumerate(rows[:10]):
@@ -66,4 +60,5 @@ def extract_pdf_table_to_polars(pdf_file) -> pl.DataFrame:
     data = rows[header_idx + 1:]
     valid_data = [r for r in data if len(r) == len(headers)]
     
-    return pl.DataFrame(valid_data, schema=headers, orient="row")
+    pdf = pd.DataFrame(valid_data, columns=headers)
+    return pl.from_pandas(pdf)

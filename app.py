@@ -90,6 +90,8 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary.views.sheetView[0].showGridLines = True
 
         ws_summary["A1"] = "AutoReconFlow — Enterprise Reconciliation & Control Report"
+	ws_summary.merge_cells("A1:C1")
+	ws_summary.merge_cells("A2:C2")
         ws_summary["A1"].font = title_font
         ws_summary["A2"] = "SOX 404 / ISA-500 Standard Financial Statement Assertion Audit Trail"
         ws_summary["A2"].font = italic_font
@@ -166,9 +168,9 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 cell.border = thin_border
 
         # Sizing columns on the summary sheet
-        ws_summary.column_dimensions["A"].width = 62
-        ws_summary.column_dimensions["B"].width = 45
-        ws_summary.column_dimensions["C"].width = 48
+        ws_summary.column_dimensions["A"].width = 64
+        ws_summary.column_dimensions["B"].width = 58
+        ws_summary.column_dimensions["C"].width = 65
 
         # -------------------------------------------------------------
         # DATA SHEETS WITH PROFESSIONAL AUDIT STYLING

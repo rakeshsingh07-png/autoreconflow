@@ -2,6 +2,8 @@ import io
 import re
 import datetime
 import hashlib
+import tempfile
+import os
 import streamlit as st
 import pandas as pd
 import polars as pl
@@ -21,6 +23,14 @@ st.sidebar.title("⚡ AutoReconFlow")
 st.sidebar.markdown("**Enterprise B2B Edition v2.0**")
 st.sidebar.caption("SOX 404 / ISA-500 & SOC 1 Type II Architecture")
 st.sidebar.divider()
+
+# Sidebar: Corporate White-Label Branding Option
+st.sidebar.markdown("### 🏢 Client Organization Branding")
+uploaded_logo = st.sidebar.file_uploader("Upload Corporate Logo (PNG/JPG)", type=["png", "jpg", "jpeg"], key="company_logo")
+if uploaded_logo:
+    st.sidebar.image(uploaded_logo, caption="Active Workpaper Branding", use_container_width=True)
+st.sidebar.divider()
+
 st.sidebar.markdown("### 💼 Commercial Licensing")
 st.sidebar.markdown(
     """
@@ -62,7 +72,7 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
     | **PDF Documents** | • **Digitally generated / vector PDFs** (Direct exports from online banking, ERPs like SAP/Oracle, or 'Print-to-PDF' statements) containing native tabular grids | • **Scanned paper / photocopies / flat images** (requires an external OCR layer)<br>• Password-locked / encrypted PDFs<br>• Multi-column newspaper text layouts without tabular boundaries |
     """)
 
-# --- PDF Executive Sign-Off Certificate Generator (Unicode-Safe) ---
+# --- PDF Executive Sign-Off Certificate Generator (Unicode-Safe & Brand-Aware) ---
 def sanitize_pdf_text(text: str) -> str:
     """Replaces unicode characters unsupported by core standard PDF fonts."""
     if not text:
@@ -83,13 +93,25 @@ def sanitize_pdf_text(text: str) -> str:
     return text.encode("latin-1", "replace").decode("latin-1")
 
 class AuditCertificatePDF(FPDF):
+    def __init__(self, logo_path=None):
+        super().__init__()
+        self.logo_path = logo_path
+
     def header(self):
         self.set_fill_color(31, 78, 121)
         self.rect(0, 0, 210, 16, 'F')
         self.set_text_color(255, 255, 255)
         self.set_font('Helvetica', 'B', 11)
         self.cell(0, 4, 'AUTORECONFLOW - INTERNAL CONTROL AUDIT CERTIFICATE', 0, 1, 'C')
-        self.ln(8)
+        self.ln(6)
+
+        # Place Client Logo if provided
+        if self.logo_path and os.path.exists(self.logo_path):
+            try:
+                # Top right corner alignment
+                self.image(self.logo_path, x=165, y=18, h=14)
+            except Exception:
+                pass
 
     def footer(self):
         self.set_y(-18)
@@ -98,19 +120,30 @@ class AuditCertificatePDF(FPDF):
         self.cell(0, 4, 'Confidential - For Authorized Supervisory & Statutory Audit Inspection Only | SOX 404 Assertion', 0, 1, 'C')
         self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
 
-def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance) -> bytes:
-    pdf = AuditCertificatePDF()
+def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance, logo_bytes=None) -> bytes:
+    logo_temp_file = None
+    if logo_bytes:
+        try:
+            logo_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            logo_temp.write(logo_bytes)
+            logo_temp.flush()
+            logo_temp.close()
+            logo_temp_file = logo_temp.name
+        except Exception:
+            logo_temp_file = None
+
+    pdf = AuditCertificatePDF(logo_path=logo_temp_file)
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # Title & Subtitle
-    pdf.set_font('Helvetica', 'B', 16)
+    pdf.set_font('Helvetica', 'B', 15)
     pdf.set_text_color(31, 78, 121)
     pdf.cell(0, 8, 'Financial Reconciliation Sign-Off Certificate', ln=True, align='L')
     pdf.set_font('Helvetica', 'I', 9)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 5, 'Compliance Certification under PCAOB AS 2201 / SOX Section 404 & ISA-500', ln=True, align='L')
-    pdf.ln(5)
+    pdf.ln(4)
 
     # Control Verification Block
     pdf.set_fill_color(245, 247, 250)
@@ -249,7 +282,16 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.set_text_color(70, 70, 70)
     pdf.cell(0, 6, f" SHA-256 DIGITAL IMMUTABILITY AUDIT HASH: {doc_hash} ", 1, 1, 'C', fill=True)
 
-    return bytes(pdf.output())
+    result_bytes = bytes(pdf.output())
+
+    # Clean up temp image file
+    if logo_temp_file and os.path.exists(logo_temp_file):
+        try:
+            os.remove(logo_temp_file)
+        except Exception:
+            pass
+
+    return result_bytes
 
 # --- Professional SOX 404 & ISA-500 Multi-Tab Audit Workpaper Generator with Verified Sign-Offs ---
 def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0) -> bytes:
@@ -664,8 +706,9 @@ if df_a is not None and df_b is not None:
 
         with exp_col2:
             if st.session_state.get("final_signed_off", False):
+                logo_file_bytes = uploaded_logo.getvalue() if uploaded_logo is not None else None
                 pdf_bytes = generate_pdf_signoff_certificate(
-                    len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), active_signoff, res["tolerance"]
+                    len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), active_signoff, res["tolerance"], logo_bytes=logo_file_bytes
                 )
                 st.download_button(
                     label="📜 Download Official PDF Sign-Off Certificate",

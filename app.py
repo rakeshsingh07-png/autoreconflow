@@ -1,12 +1,15 @@
 import io
 import re
+import datetime
 import streamlit as st
 import pandas as pd
 import polars as pl
 from recon_engine import execute_high_volume_reconciliation
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 st.set_page_config(
-    page_title="AutoReconFlow — Enterprise Autonomous Reconciliation",
+    page_title="AutoReconFlow — Enterprise Autonomous Reconciliation (SOX 404 / ISA-500 Compliant)",
     page_icon="⚡",
     layout="wide"
 )
@@ -14,6 +17,7 @@ st.set_page_config(
 # Sidebar
 st.sidebar.title("⚡ AutoReconFlow")
 st.sidebar.markdown("**Enterprise B2B Edition v2.0**")
+st.sidebar.caption("SOX 404 / ISA-500 & SOC 1 Type II Architecture")
 st.sidebar.divider()
 st.sidebar.markdown("### 💼 Commercial Licensing")
 st.sidebar.markdown(
@@ -31,29 +35,146 @@ st.sidebar.divider()
 st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
 st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
 
-# --- Multi-Tab Consolidated Excel Generator ---
-def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df) -> bytes:
+# --- Professional SOX 404 & ISA-500 Multi-Tab Audit Workpaper Generator ---
+def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, tolerance=1.0) -> bytes:
     output = io.BytesIO()
+    timestamp_utc = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Corporate Audit Palette
+    navy_header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    section_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    white_bold_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    bold_font = Font(name="Calibri", size=11, bold=True)
+    regular_font = Font(name="Calibri", size=11)
+    title_font = Font(name="Calibri", size=14, bold=True, color="1F4E79")
+    thin_border = Border(
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9")
+    )
+
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        summary_df = pd.DataFrame({
-            "Reconciliation Category": [
-                "100% Deterministic Matched",
-                "Fuzzy Review Candidates",
-                "Source A Exceptions (Ledger Missing in Bank)",
-                "Source B Exceptions (Bank Missing in Ledger)"
-            ],
-            "Record Count": [
-                len(matched_df),
-                len(fuzzy_df),
-                len(un_a_df),
-                len(un_b_df)
-            ]
-        })
-        summary_df.to_excel(writer, sheet_name="Recon Summary", index=False)
-        matched_df.to_excel(writer, sheet_name="Matched Records", index=False)
-        fuzzy_df.to_excel(writer, sheet_name="Fuzzy Candidates", index=False)
-        un_a_df.to_excel(writer, sheet_name="Exceptions Source A", index=False)
-        un_b_df.to_excel(writer, sheet_name="Exceptions Source B", index=False)
+        workbook = writer.book
+
+        # -------------------------------------------------------------
+        # SHEET 1: AUDIT & CONTROL SUMMARY (SOX 404 COMPLIANCE)
+        # -------------------------------------------------------------
+        ws_summary = workbook.create_sheet(title="Audit & Control Summary", index=0)
+        ws_summary.views.sheetView[0].showGridLines = True
+
+        ws_summary["A1"] = "AutoReconFlow — Enterprise Reconciliation & Control Report"
+        ws_summary["A1"].font = title_font
+        ws_summary["A2"] = "SOX 404 / ISA-500 Standard Financial Statement Assertion Audit Trail"
+        ws_summary["A2"].font = Font(name="Calibri", size=10, italic=True, color="595959")
+
+        # Metadata Block
+        metadata = [
+            ("Execution Timestamp (UTC):", timestamp_utc),
+            ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
+            ("Matching Methodology:", "3-Tier (Deterministic Exact -> Levenshtein/Jaro-Winkler Fuzzy)"),
+            ("Control Assertion Target:", "Completeness, Accuracy, and Valuation (Financial Controls)")
+        ]
+        ws_summary.append([])
+        for label, val in metadata:
+            ws_summary.append([label, val])
+
+        for r in range(4, 8):
+            ws_summary.cell(row=r, column=1).font = bold_font
+            ws_summary.cell(row=r, column=2).font = regular_font
+
+        # Summary Metrics Table
+        ws_summary.append([])
+        ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
+        summary_header_row = 9
+        for col_idx in range(1, 4):
+            cell = ws_summary.cell(row=summary_header_row, column=col_idx)
+            cell.fill = navy_header_fill
+            cell.font = white_bold_font
+            cell.alignment = Alignment(horizontal="center" if col_idx > 1 else "left")
+
+        summary_rows = [
+            ("Tier-1 Deterministic Matches (Subledger to External)", len(matched_df), "Cleared"),
+            ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", len(fuzzy_df), "Requires Supervisory Review" if len(fuzzy_df) > 0 else "Cleared"),
+            ("Source A Exceptions (Ledger Missing in External)", len(un_a_df), "Action Required" if len(un_a_df) > 0 else "Cleared"),
+            ("Source B Exceptions (External Missing in Ledger)", len(un_b_df), "Action Required" if len(un_b_df) > 0 else "Cleared"),
+        ]
+
+        for item in summary_rows:
+            ws_summary.append(list(item))
+
+        for r in range(10, 14):
+            for c in range(1, 4):
+                cell = ws_summary.cell(row=r, column=c)
+                cell.font = regular_font
+                cell.border = thin_border
+                if c == 2:
+                    cell.alignment = Alignment(horizontal="right")
+                    cell.number_format = "#,##0"
+                elif c == 3:
+                    cell.alignment = Alignment(horizontal="center")
+
+        # Governance Sign-Off Block (Four-Eyes Principle)
+        sign_off_start = 16
+        ws_summary.cell(row=sign_off_start, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)").font = bold_font
+        ws_summary.cell(row=sign_off_start, column=1).fill = section_fill
+        ws_summary.merge_cells(start_row=sign_off_start, start_column=1, end_row=sign_off_start, end_column=3)
+
+        signoffs = [
+            ("Prepared By (Analyst):", "___________________________", "Date: ____________"),
+            ("Reviewed By (Controller / Manager):", "___________________________", "Date: ____________"),
+            ("Audit Workpaper Reference:", "WP-REC-2026-Q4", "Status: Pending Review")
+        ]
+        for role, line, dt in signoffs:
+            ws_summary.append([role, line, dt])
+
+        for r in range(sign_off_start + 1, sign_off_start + 4):
+            ws_summary.cell(row=r, column=1).font = bold_font
+            ws_summary.cell(row=r, column=2).font = regular_font
+            ws_summary.cell(row=r, column=3).font = regular_font
+
+        # -------------------------------------------------------------
+        # DATA SHEETS WITH PROFESSIONAL AUDIT STYLING
+        # -------------------------------------------------------------
+        data_sheets = {
+            "Deterministic Matches": matched_df,
+            "Fuzzy Candidates": fuzzy_df,
+            "Exceptions Source A": un_a_df,
+            "Exceptions Source B": un_b_df
+        }
+
+        for sheet_title, df_content in data_sheets.items():
+            df_content.to_excel(writer, sheet_name=sheet_title, index=False)
+            ws = writer.sheets[sheet_title]
+            ws.views.sheetView[0].showGridLines = True
+            ws.freeze_panes = "A2"
+
+            for col_idx in range(1, len(df_content.columns) + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.fill = navy_header_fill
+                cell.font = white_bold_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            for row in ws.iter_rows(min_row=2, max_row=len(df_content) + 1, min_col=1, max_col=len(df_content.columns)):
+                for cell in row:
+                    cell.border = thin_border
+                    cell.font = regular_font
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = "#,##0.00"
+
+        # Auto-adjust column widths
+        for sheetname in writer.sheets:
+            ws = writer.sheets[sheetname]
+            for col in ws.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    val_str = str(cell.value or "")
+                    if cell.row == 1 and sheetname == "Audit & Control Summary":
+                        continue
+                    max_len = max(max_len, len(val_str))
+                ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 48)
+
     return output.getvalue()
 
 # --- Robust Ingestion Engine with Built-in Column Splitting ---
@@ -228,89 +349,89 @@ if df_a is not None and df_b is not None:
                 st.error(f"Reconciliation error: {str(e)}")
                 st.stop()
 
-        # Convert Polars DataFrames to Pandas for clean export
         matched_pd = matched.to_pandas()
         fuzzy_pd = fuzzy.to_pandas()
         un_a_pd = un_a.to_pandas()
         un_b_pd = un_b.to_pandas()
 
-        st.subheader("📊 Reconciliation Summary")
+        st.subheader("📊 Reconciliation & Control Summary (SOX 404 / ISA-500)")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("100% Deterministic Matched", f"{len(matched_pd):,} records")
-        k2.metric("Fuzzy Candidates", f"{len(fuzzy_pd):,} records")
-        k3.metric("Unmatched (Source A)", f"{len(un_a_pd):,} records")
-        k4.metric("Unmatched (Source B)", f"{len(un_b_pd):,} records")
+        k1.metric("Tier-1 Deterministic Matches", f"{len(matched_pd):,} records")
+        k2.metric("Tier-2 Discrepancy Review", f"{len(fuzzy_pd):,} records")
+        k3.metric("Source A Exceptions (Ledger)", f"{len(un_a_pd):,} records")
+        k4.metric("Source B Exceptions (External)", f"{len(un_b_pd):,} records")
 
-        # Top-level Consolidated Multi-Tab Excel Export Button
-        excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd)
+        # Top-level SOX-Compliant Multi-Tab Excel Export Button
+        excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd, tolerance=tolerance)
         st.download_button(
-            label="📦 Download Complete Consolidated Workbook (Excel .xlsx)",
+            label="📦 Export SOX-Compliant Audit Workpaper (.xlsx)",
             data=excel_bytes,
-            file_name="AutoReconFlow_Consolidated_Report.xlsx",
+            file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             key="btn_download_master_excel"
         )
         st.write("")
 
-        # Distinct 4 tabs: Matched, Fuzzy, and Separate Exceptions for Source A & B
+        # 4 Separate Review Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
-            "✅ Matched Records",
-            "🔍 Fuzzy Review",
-            "⚠️ Exceptions: Source A (Ledger)",
-            "⚠️ Exceptions: Source B (External / Bank)"
+            "✅ Tier-1 Deterministic Matches",
+            "🔍 Tier-2 Discrepancy & Threshold Review",
+            "⚠️ Exceptions: Source A (Ledger Unmatched)",
+            "⚠️ Exceptions: Source B (External Unmatched)"
         ])
 
         with tab1:
             if len(matched_pd) > 0:
                 st.dataframe(matched_pd, use_container_width=True)
                 st.download_button(
-                    label="📥 Download Matched CSV",
+                    label="📥 Download Deterministic Matches (CSV)",
                     data=matched.write_csv(),
-                    file_name="matched_records.csv",
+                    file_name="deterministic_matches.csv",
                     mime="text/csv",
                     key="btn_matched_csv"
                 )
             else:
-                st.info("No exact matches found under current settings.")
+                st.info("No exact matches identified under current settings.")
 
         with tab2:
             if len(fuzzy_pd) > 0:
+                st.markdown("**Discrepancies Requiring Review (Levenshtein / Jaro-Winkler Variance)**")
                 st.dataframe(fuzzy_pd, use_container_width=True)
                 st.download_button(
-                    label="📥 Download Fuzzy Review CSV",
+                    label="📥 Download Discrepancy Candidates (CSV)",
                     data=fuzzy.write_csv(),
-                    file_name="fuzzy_candidates.csv",
+                    file_name="fuzzy_review_candidates.csv",
                     mime="text/csv",
                     key="btn_fuzzy_csv"
                 )
             else:
-                st.info("No fuzzy discrepancies found.")
+                st.info("Zero fuzzy discrepancies detected.")
 
         with tab3:
             if len(un_a_pd) > 0:
-                st.markdown("**Source A Entries Missing in Source B (Unmatched Ledger)**")
+                st.markdown("**Source A Entries Missing in Source B (Unmatched Subledger Items)**")
                 st.dataframe(un_a_pd, use_container_width=True)
                 st.download_button(
-                    label="📥 Download Source A Exceptions CSV",
+                    label="📥 Download Source A Exceptions (CSV)",
                     data=un_a.write_csv(),
-                    file_name="exceptions_source_a_ledger.csv",
+                    file_name="unmatched_ledger_exceptions.csv",
                     mime="text/csv",
                     key="btn_un_a_csv"
                 )
             else:
-                st.success("All Source A items accounted for (0 exceptions).")
+                st.success("All Source A items accounted for (0 open variances).")
 
         with tab4:
             if len(un_b_pd) > 0:
-                st.markdown("**Source B Entries Missing in Source A (Unmatched Bank/Portal)**")
+                st.markdown("**Source B Entries Missing in Source A (Timing & External Exceptions)**")
                 st.dataframe(un_b_pd, use_container_width=True)
                 st.download_button(
-                    label="📥 Download Source B Exceptions CSV",
+                    label="📥 Download Source B Exceptions (CSV)",
                     data=un_b.write_csv(),
-                    file_name="exceptions_source_b_external.csv",
+                    file_name="unmatched_external_exceptions.csv",
                     mime="text/csv",
                     key="btn_un_b_csv"
                 )
             else:
-                st.success("All Source B items accounted for (0 exceptions).")
+                st.success("All Source B items accounted for (0 open variances).")

@@ -22,38 +22,87 @@ st.set_page_config(
 )
 
 # --- Pure Python Token-Free Email Dispatcher ---
-def send_workflow_email(smtp_settings, recipient_email, subject, body_content):
+def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
     """Sends notification emails using pure Python smtplib with zero token cost."""
     if not smtp_settings.get("enabled", False):
-        return True, "Email simulation active (SMTP disabled)."
+        return True, "Simulation mode active (SMTP disabled)."
     
-    server_host = smtp_settings.get("host", "smtp.gmail.com")
+    server_host = smtp_settings.get("host", "smtp.gmail.com").strip()
     server_port = int(smtp_settings.get("port", 465))
-    sender_user = smtp_settings.get("user", "")
-    sender_pass = smtp_settings.get("password", "")
+    sender_user = smtp_settings.get("user", "").strip()
+    sender_pass = smtp_settings.get("password", "").strip()
 
-    if not sender_user or not sender_pass or not recipient_email:
-        return False, "SMTP user, password, or recipient email missing."
+    if not sender_user or not sender_pass:
+        return False, "SMTP sender username or password is missing."
+    if not recipient_email or "@" not in recipient_email:
+        return False, f"Invalid recipient email address: '{recipient_email}'"
 
     try:
-        msg = MIMEMultipart()
-        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
+        msg = MIMEMultipart("alternative")
+        msg['From'] = f"AutoReconFlow Notification <{sender_user}>"
         msg['To'] = recipient_email
         msg['Subject'] = subject
-        msg.attach(MIMEText(body_content, 'plain'))
+
+        # Attach Plain Text fallback
+        msg.attach(MIMEText(plain_text, 'plain'))
+        
+        # Attach Rich HTML layout if provided
+        if html_content:
+            msg.attach(MIMEText(html_content, 'html'))
 
         if server_port == 465:
-            with smtplib.SMTP_SSL(server_host, server_port) as server:
+            with smtplib.SMTP_SSL(server_host, server_port, timeout=12) as server:
                 server.login(sender_user, sender_pass)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(server_host, server_port) as server:
+            with smtplib.SMTP(server_host, server_port, timeout=12) as server:
                 server.starttls()
                 server.login(sender_user, sender_pass)
                 server.send_message(msg)
-        return True, "Notification email successfully dispatched."
+        return True, "Email successfully delivered."
+    except smtplib.SMTPAuthenticationError:
+        return False, "SMTP Authentication Failed: Incorrect email or Google App Password."
     except Exception as e:
-        return False, f"SMTP Error: {str(e)}"
+        return False, f"SMTP Dispatch Error: {str(e)}"
+
+def build_html_email(title, header_desc, details_dict, action_button_url="https://www.autoreconflow.com"):
+    """Builds a responsive, corporate-styled HTML email."""
+    rows_html = "".join([
+        f"<tr><td style='padding:8px;font-weight:bold;color:#1F4E79;width:35%;border-bottom:1px solid #E0E0E0;'>{k}</td>"
+        f"<td style='padding:8px;color:#333;border-bottom:1px solid #E0E0E0;'>{v}</td></tr>"
+        for k, v in details_dict.items()
+    ])
+    
+    return f"""
+    <html>
+      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:20px;background-color:#F4F6F9;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #D9E1F2;border-radius:6px;overflow:hidden;">
+          <tr>
+            <td bgcolor="#1F4E79" style="padding:16px 24px;color:#ffffff;">
+              <h2 style="margin:0;font-size:18px;">⚡ AutoReconFlow | Financial Governance Alert</h2>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <h3 style="margin-top:0;color:#1F4E79;">{title}</h3>
+              <p style="color:#555;font-size:14px;line-height:1.5;">{header_desc}</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-collapse:collapse;font-size:13px;">
+                {rows_html}
+              </table>
+              <div style="text-align:center;margin-top:25px;">
+                <a href="{action_button_url}" style="background-color:#1F4E79;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold;display:inline-block;">Open AutoReconFlow Workpaper</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td bgcolor="#F5F7FA" style="padding:12px 24px;font-size:11px;color:#888;text-align:center;">
+              SOX 404 / ISA-500 Four-Eyes Governance Automation | Confidential Statutory Internal Controls
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
 
 # --- Sidebar Configuration ---
 st.sidebar.title("⚡ AutoReconFlow")
@@ -72,21 +121,47 @@ company_address = st.sidebar.text_area("Registered Office Address", value="Tower
 company_uid = st.sidebar.text_input("Unique Identification No. (CIN / LEI / Tax ID)", value="CIN: U72200HR2026PTC109823", key="cfg_comp_uid")
 st.sidebar.divider()
 
-# Email Notification Settings (Zero Token API Cost)
+# Email Notification Settings with Connection Verification
 with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
-    enable_smtp = st.checkbox("Enable Live SMTP Email Dispatch", value=False, key="smtp_enabled")
-    smtp_host = st.text_input("SMTP Server Host", value="smtp.gmail.com", key="smtp_host")
-    smtp_port = st.text_input("SMTP Port", value="465", key="smtp_port")
-    smtp_user = st.text_input("Sender Email Address", value="notifications@autoreconflow.com", key="smtp_user")
-    smtp_pass = st.text_input("Sender App Password", type="password", key="smtp_pass")
+    st.caption("Zero-token SMTP engine. Compatible with Gmail App Passwords, Outlook, and Brevo.")
+    enable_smtp = st.checkbox("Enable Live Email Dispatch", value=False, key="smtp_enabled")
+    
+    # Check if pre-configured secrets exist
+    default_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com") if hasattr(st, "secrets") else "smtp.gmail.com"
+    default_port = str(st.secrets.get("SMTP_PORT", "465")) if hasattr(st, "secrets") else "465"
+    default_user = st.secrets.get("SMTP_USER", "") if hasattr(st, "secrets") else ""
+    default_pass = st.secrets.get("SMTP_PASSWORD", "") if hasattr(st, "secrets") else ""
 
-smtp_cfg = {
-    "enabled": enable_smtp,
-    "host": smtp_host,
-    "port": smtp_port,
-    "user": smtp_user,
-    "password": smtp_pass
-}
+    smtp_host = st.text_input("SMTP Server Host", value=default_host, key="smtp_host")
+    smtp_port = st.text_input("SMTP Port (465=SSL / 587=TLS)", value=default_port, key="smtp_port")
+    smtp_user = st.text_input("Sender Email Address", value=default_user, placeholder="yourname@gmail.com", key="smtp_user")
+    smtp_pass = st.text_input("Sender App Password", value=default_pass, type="password", placeholder="16-character app password", key="smtp_pass")
+
+    smtp_cfg = {
+        "enabled": enable_smtp,
+        "host": smtp_host,
+        "port": smtp_port,
+        "user": smtp_user,
+        "password": smtp_pass
+    }
+
+    test_target = st.text_input("Test Target Email", value=smtp_user or "", placeholder="recipient@domain.com", key="smtp_test_target")
+    if st.button("🧪 Send Test Ping Email", use_container_width=True):
+        if not enable_smtp:
+            st.warning("Please check 'Enable Live Email Dispatch' first.")
+        else:
+            with st.spinner("Connecting to SMTP server..."):
+                ok, feedback = send_workflow_email(
+                    smtp_cfg, 
+                    test_target, 
+                    "AutoReconFlow - SMTP Connection Verified", 
+                    "This confirms your AutoReconFlow email trigger configuration is working properly.",
+                    build_html_email("SMTP Connection Verified", "Your AutoReconFlow email alerts are configured properly and operational.", {"Status": "Operational", "Tested At": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")})
+                )
+                if ok:
+                    st.success("✅ Test email dispatched successfully! Check your inbox.")
+                else:
+                    st.error(f"❌ {feedback}")
 
 st.sidebar.divider()
 st.sidebar.markdown("### 💼 Commercial Licensing")
@@ -117,7 +192,7 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
        * **Tier-2 (Fuzzy / Threshold Review)**: Matches within specified tolerance limits and text proximity (Jaro-Winkler / Levenshtein).
        * **Tier-3 (Exceptions)**: Discrepancies and unlinked entries categorized by origin source.
     4. **Two-Stage Four-Eyes Governance with Line-Item Query Thread**: 
-       * **Stage 1 (Preparer Submission)**: Preparer audits records and submits to Reviewer.
+       * **Stage 1 (Preparer Submission)**: Preparer audits records and submits to Reviewer with automated email dispatch.
        * **Stage 2 (Supervisory Review & Clarification)**: Reviewer evaluates discrepancies, can raise line-specific queries for Preparer clarification, and issues final sign-off.
     5. **Audit-Trail Export**: Multi-sheet SOX-compliant Excel workpaper plus an immutable, tamper-evident PDF Executive Sign-Off Certificate.
 
@@ -402,7 +477,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         bottom=Side(style="thin", color="D9D9D9")
     )
 
-    # Stamp query thread directly to copies of exception dataframes
     m_copy = matched_df.copy()
     f_copy = fuzzy_df.copy()
     a_copy = un_a_df.copy()
@@ -735,7 +809,7 @@ if df_a is not None and df_b is not None:
             "un_b_pl": un_b,
             "tolerance": tolerance
         }
-        # Reset entire workflow on fresh run
+        # Reset entire workflow state on fresh run
         st.session_state["preparer_completed"] = False
         st.session_state["reviewer_approved"] = False
         st.session_state["audit_query_thread"] = {
@@ -806,12 +880,20 @@ if df_a is not None and df_b is not None:
                             st.session_state["saved_prep_signed"] = prep_signed
 
                             # Dispatch automated notification to Reviewer
-                            send_workflow_email(
-                                smtp_cfg,
-                                rev_target_email,
-                                "ACTION REQUIRED: Reconciliation Sign-Off Pending - AutoReconFlow",
-                                f"Hello,\n\nReconciliation workpaper has been prepared and submitted by {prep_name} ({prep_id}) at {prep_date}.\n\nPlease review discrepancies and issue supervisory sign-off: https://www.autoreconflow.com\n\nAutoReconFlow Governance Engine"
+                            plain_body = f"Hello,\n\nReconciliation workpaper has been prepared and submitted by {prep_name} ({prep_id}) at {prep_date}.\n\nPlease review discrepancies and issue supervisory sign-off: https://www.autoreconflow.com\n\nAutoReconFlow Governance Engine"
+                            html_body = build_html_email(
+                                "Action Required: Reconciliation Awaiting Approval",
+                                f"A reconciliation workpaper has been prepared and submitted for your supervisory sign-off under SOX 404 controls.",
+                                {
+                                    "Preparer": f"{prep_name} ({prep_id})",
+                                    "Submitted At": prep_date,
+                                    "Matched Items": f"{len(matched_pd):,} records",
+                                    "Exceptions to Review": f"{len(un_a_pd) + len(un_b_pd) + len(fuzzy_pd):,} items"
+                                }
                             )
+                            ok, info = send_workflow_email(smtp_cfg, rev_target_email, "ACTION REQUIRED: Reconciliation Sign-Off Pending - AutoReconFlow", plain_body, html_body)
+                            if not ok:
+                                st.warning(f"Note: Workflow updated locally, but email could not be sent: {info}")
                             st.rerun()
                 else:
                     st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
@@ -846,6 +928,20 @@ if df_a is not None and df_b is not None:
                             st.session_state["saved_rev_verdict"] = rev_verdict
                             st.session_state["saved_wp_ref"] = wp_ref
                             st.session_state["saved_audit_notes"] = audit_notes
+
+                            # Notify Preparer of final approval
+                            prep_mail = st.session_state.get("saved_prep_email", "analyst@company.com")
+                            html_approved = build_html_email(
+                                "Reconciliation Workpaper Approved & Sealed",
+                                "The supervisory review cycle has been formally cleared. Final audit artifacts are unlocked.",
+                                {
+                                    "Reviewer": f"{rev_name} ({rev_title})",
+                                    "Verdict": rev_verdict,
+                                    "Approved Timestamp": rev_date,
+                                    "Workpaper Ref": wp_ref
+                                }
+                            )
+                            send_workflow_email(smtp_cfg, prep_mail, f"COMPLETED: Reconciliation Workpaper [{wp_ref}] Approved", "Workpaper formally cleared.", html_approved)
                             st.rerun()
                     elif is_rev_approved:
                         st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
@@ -856,7 +952,6 @@ if df_a is not None and df_b is not None:
         if is_prep_done and not is_rev_approved:
             st.markdown("#### 💬 Supervisory Exception Query & Clarification Thread")
 
-            # Collect IDs for query dropdown
             disputed_items = []
             for col_id_candidate in ["Invoice_ID", "Transaction_Ref", "col_0"]:
                 if col_id_candidate in un_b_pd.columns:
@@ -883,13 +978,22 @@ if df_a is not None and df_b is not None:
                             query_state["reviewer_query"] = q_text
                             query_state["reviewer_query_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-                            # Send email trigger back to Preparer
                             target_prep_mail = st.session_state.get("saved_prep_email", "analyst@company.com")
+                            html_query = build_html_email(
+                                f"Clarification Required: Line Item [{sel_item}]",
+                                "The Reviewer has raised an audit observation on this line item. Please provide your explanation.",
+                                {
+                                    "Item Queried": sel_item,
+                                    "Reviewer Note": q_text,
+                                    "Queried At": query_state["reviewer_query_time"]
+                                }
+                            )
                             send_workflow_email(
                                 smtp_cfg,
                                 target_prep_mail,
                                 f"ACTION REQUIRED: Reviewer Clarification Query [{sel_item}] - AutoReconFlow",
-                                f"Hello,\n\nThe Reviewer has queried item [{sel_item}]:\n\n\"{q_text}\"\n\nPlease log in to provide your explanation: https://www.autoreconflow.com\n\nAutoReconFlow Audit Engine"
+                                f"Reviewer query on {sel_item}: {q_text}",
+                                html_query
                             )
                             st.rerun()
 
@@ -909,13 +1013,23 @@ if df_a is not None and df_b is not None:
                         query_state["preparer_reply"] = prep_reply
                         query_state["preparer_reply_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-                        # Send notification to Reviewer
                         target_rev_mail = st.session_state.get("saved_rev_target_email", "controller@company.com")
+                        html_reply = build_html_email(
+                            f"Clarification Submitted for [{query_state['item_id']}]",
+                            "The Preparer has responded to your observation. The item is ready for supervisory evaluation.",
+                            {
+                                "Item ID": query_state["item_id"],
+                                "Original Query": query_state["reviewer_query"],
+                                "Preparer Explanation": prep_reply,
+                                "Resubmitted At": query_state["preparer_reply_time"]
+                            }
+                        )
                         send_workflow_email(
                             smtp_cfg,
                             target_rev_mail,
                             f"EXPLANATION SUBMITTED: Item [{query_state['item_id']}] Ready for Approval - AutoReconFlow",
-                            f"Hello,\n\nThe Preparer has provided an explanation for [{query_state['item_id']}]:\n\n\"{prep_reply}\"\n\nPlease review and approve: https://www.autoreconflow.com\n\nAutoReconFlow Audit Engine"
+                            f"Preparer responded to query on {query_state['item_id']}: {prep_reply}",
+                            html_reply
                         )
                         st.rerun()
 
@@ -935,6 +1049,20 @@ if df_a is not None and df_b is not None:
                     st.session_state["saved_rev_verdict"] = "Approved with Clarifications Noted"
                     st.session_state["saved_wp_ref"] = wp_ref
                     st.session_state["saved_audit_notes"] = audit_notes
+
+                    # Notify Preparer
+                    prep_mail = st.session_state.get("saved_prep_email", "analyst@company.com")
+                    html_resolved = build_html_email(
+                        "Clarification Cleared & Workpaper Approved",
+                        "Your explanation was accepted by the Reviewer. The workpaper has been permanently approved.",
+                        {
+                            "Item Resolved": query_state["item_id"],
+                            "Verdict": "Approved with Clarifications Noted",
+                            "Reviewer": rev_name,
+                            "Timestamp": st.session_state["saved_rev_date"]
+                        }
+                    )
+                    send_workflow_email(smtp_cfg, prep_mail, f"RESOLVED: Workpaper [{wp_ref}] Formally Approved", "Clarification accepted.", html_resolved)
                     st.rerun()
 
         # Build payload

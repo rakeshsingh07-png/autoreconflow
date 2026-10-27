@@ -15,11 +15,98 @@ from recon_engine import execute_high_volume_reconciliation
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+# --- Page Configuration & Professional Executive Styling ---
 st.set_page_config(
-    page_title="AutoReconFlow — Enterprise Autonomous Reconciliation (SOX 404 / ISA-500 Compliant)",
-    page_icon="⚡",
+    page_title="AutoReconFlow — Enterprise Financial Reconciliation, Tax & Audit Engine",
+    page_icon="⚖️",
     layout="wide"
 )
+
+# Executive Institutional Palette (Wall Street Navy & Slate Theme)
+st.markdown("""
+<style>
+    /* Global Base Typography & Smooth Rendering */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #1e293b;
+    }
+    
+    /* Top Header Branding Container */
+    .brand-hero {
+        background: linear-gradient(135deg, #0A2540 0%, #1B365D 60%, #204066 100%);
+        color: #ffffff;
+        padding: 24px 30px;
+        border-radius: 10px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 14px rgba(10, 37, 64, 0.15);
+    }
+    .brand-hero h1 {
+        color: #ffffff !important;
+        font-weight: 700;
+        font-size: 26px;
+        margin: 0 0 6px 0;
+        letter-spacing: -0.5px;
+    }
+    .brand-hero p {
+        color: #94a3b8 !important;
+        font-size: 14px;
+        margin: 0;
+    }
+
+    /* Metric Summary Badges */
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border-left: 4px solid #1B365D;
+    }
+    div[data-testid="stMetricLabel"] p {
+        font-size: 13px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    div[data-testid="stMetricValue"] div {
+        color: #0f172a;
+        font-weight: 700;
+        font-size: 22px;
+    }
+
+    /* Sidebar Refinement */
+    section[data-testid="stSidebar"] {
+        background-color: #f8fafc;
+        border-right: 1px solid #e2e8f0;
+    }
+    
+    /* Primary Action Buttons */
+    button[kind="primary"] {
+        background: linear-gradient(180deg, #1B365D 0%, #0A2540 100%) !important;
+        border: none !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        padding: 8px 18px !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 6px rgba(10, 37, 64, 0.2) !important;
+        transition: all 0.2s ease;
+    }
+    button[kind="primary"]:hover {
+        background: linear-gradient(180deg, #23426e 0%, #102d4d 100%) !important;
+        box-shadow: 0 4px 12px rgba(10, 37, 64, 0.3) !important;
+        transform: translateY(-1px);
+    }
+    
+    /* Professional DataFrames / Tables */
+    div[data-testid="stDataFrame"] {
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- Pure Python Token-Free Email Dispatcher ---
 def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
@@ -39,7 +126,7 @@ def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, htm
 
     try:
         msg = MIMEMultipart("alternative")
-        msg['From'] = f"AutoReconFlow Notification <{sender_user}>"
+        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
         msg['To'] = recipient_email
         msg['Subject'] = subject
 
@@ -68,35 +155,35 @@ def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, htm
 def build_html_email(title, header_desc, details_dict, action_button_url="https://www.autoreconflow.com"):
     """Builds a responsive, corporate-styled HTML email."""
     rows_html = "".join([
-        f"<tr><td style='padding:8px;font-weight:bold;color:#1F4E79;width:35%;border-bottom:1px solid #E0E0E0;'>{k}</td>"
-        f"<td style='padding:8px;color:#333;border-bottom:1px solid #E0E0E0;'>{v}</td></tr>"
+        f"<tr><td style='padding:9px;font-weight:600;color:#1B365D;width:35%;border-bottom:1px solid #E2E8F0;'>{k}</td>"
+        f"<td style='padding:9px;color:#334155;border-bottom:1px solid #E2E8F0;'>{v}</td></tr>"
         for k, v in details_dict.items()
     ])
     
     return f"""
     <html>
-      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:20px;background-color:#F4F6F9;">
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #D9E1F2;border-radius:6px;overflow:hidden;">
+      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:24px;background-color:#F8FAFC;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #CBD5E1;border-radius:8px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
           <tr>
-            <td bgcolor="#1F4E79" style="padding:16px 24px;color:#ffffff;">
-              <h2 style="margin:0;font-size:18px;">⚡ AutoReconFlow | Financial Governance Alert</h2>
+            <td bgcolor="#1B365D" style="padding:20px 28px;color:#ffffff;">
+              <h2 style="margin:0;font-size:19px;font-weight:700;">⚖️ AutoReconFlow | Financial Governance Notice</h2>
             </td>
           </tr>
           <tr>
-            <td style="padding:24px;">
-              <h3 style="margin-top:0;color:#1F4E79;">{title}</h3>
-              <p style="color:#555;font-size:14px;line-height:1.5;">{header_desc}</p>
+            <td style="padding:28px;">
+              <h3 style="margin-top:0;color:#0F172A;font-size:17px;">{title}</h3>
+              <p style="color:#475569;font-size:14px;line-height:1.6;">{header_desc}</p>
               <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-collapse:collapse;font-size:13px;">
                 {rows_html}
               </table>
-              <div style="text-align:center;margin-top:25px;">
-                <a href="{action_button_url}" style="background-color:#1F4E79;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold;display:inline-block;">Open AutoReconFlow Workpaper</a>
+              <div style="text-align:center;margin-top:28px;">
+                <a href="{action_button_url}" style="background-color:#1B365D;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:5px;font-weight:600;display:inline-block;box-shadow:0 2px 6px rgba(27,54,93,0.3);">Open Workpaper & Verify Record</a>
               </div>
             </td>
           </tr>
           <tr>
-            <td bgcolor="#F5F7FA" style="padding:12px 24px;font-size:11px;color:#888;text-align:center;">
-              SOX 404 / ISA-500 Four-Eyes Governance Automation | Confidential Statutory Internal Controls
+            <td bgcolor="#F1F5F9" style="padding:14px 28px;font-size:11px;color:#64748B;text-align:center;">
+              SOX 404 / ISA-500 Four-Eyes Governance Automation | Tamper-Evident SHA-256 Audit Trails
             </td>
           </tr>
         </table>
@@ -104,14 +191,14 @@ def build_html_email(title, header_desc, details_dict, action_button_url="https:
     </html>
     """
 
-# --- Sidebar Configuration ---
-st.sidebar.title("⚡ AutoReconFlow")
+# --- Sidebar Configuration & Commercial Hub ---
+st.sidebar.markdown("### ⚡ AutoReconFlow")
 st.sidebar.markdown("**Enterprise B2B Edition v2.0**")
-st.sidebar.caption("SOX 404 / ISA-500 & SOC 1 Type II Architecture")
+st.sidebar.caption("SOX 404 / ISA-500 & SOC 1 Type II Governance Architecture")
 st.sidebar.divider()
 
 # Organization White-Label Profile
-st.sidebar.markdown("### 🏢 Client Organization Branding")
+st.sidebar.markdown("#### 🏢 Client Branding Configuration")
 uploaded_logo = st.sidebar.file_uploader("Upload Corporate Logo (PNG/JPG)", type=["png", "jpg", "jpeg"], key="company_logo")
 if uploaded_logo:
     st.sidebar.image(uploaded_logo, caption="Active Workpaper Branding", use_container_width=True)
@@ -126,7 +213,6 @@ with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
     st.caption("Zero-token SMTP engine. Compatible with Gmail App Passwords, Outlook, and Brevo.")
     enable_smtp = st.checkbox("Enable Live Email Dispatch", value=False, key="smtp_enabled")
     
-    # Check if pre-configured secrets exist
     default_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com") if hasattr(st, "secrets") else "smtp.gmail.com"
     default_port = str(st.secrets.get("SMTP_PORT", "465")) if hasattr(st, "secrets") else "465"
     default_user = st.secrets.get("SMTP_USER", "") if hasattr(st, "secrets") else ""
@@ -164,21 +250,33 @@ with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
                     st.error(f"❌ {feedback}")
 
 st.sidebar.divider()
-st.sidebar.markdown("### 💼 Commercial Licensing")
+
+# High-Converting 3-Tier Commercial Licensing Hub
+st.sidebar.markdown("### 💼 Commercial Licensing & Deployment")
 st.sidebar.markdown(
     """
-    Acquire full source code, Docker assets, and distribution rights:
-    - **Single Practice License**: $79
-    - **Extended / Agency License**: $499
+    **Enterprise Financial Reconciliation, Tax & Audit Suite**
     
-    [👉 Purchase Commercial License](https://autoreconflow.com)
+    * **Practitioner License ($79 / ₹6,999)**: Single-seat desktop deployment, unlimited matching, automated email alerts, and SHA-256 PDF certificates.
+    * **Business & Tax Suite ($199 / ₹16,999)**: Subledger-to-bank & GST/VAT portal modules, custom white-labeling, and full source code access.
+    * **Enterprise Turnkey ($499 / ₹39,999)**: Private cloud/server deployment, multi-user database integration, and compliance onboarding.
+    
+    [👉 **Purchase Commercial License Now**](https://www.autoreconflow.com)
+    
+    *Need custom ERP/SAP integration or an enterprise demo?*  
+    📧 **Contact Sales:** [contact@rakeshsingh.tech](mailto:contact@rakeshsingh.tech)
     """
 )
-st.sidebar.caption("Includes Polars multi-core matching, PDF ingestion, and GST/VAT cross-border rules.")
+st.sidebar.caption("Pure Python • 0 Token Costs • 100% On-Premise Data Privacy")
 st.sidebar.divider()
 
-st.title("⚡ AutoReconFlow — Enterprise Autonomous Reconciliation")
-st.markdown("High-throughput, 3-tier financial matching and cross-border tax reconciliation platform.")
+# --- Main App Title & Subtitle (Unified Hybrid Hero) ---
+st.markdown("""
+<div class="brand-hero">
+    <h1>⚖️ AutoReconFlow — Enterprise Financial Reconciliation, Tax & Audit Engine</h1>
+    <p>High-throughput 3-tier financial matching, cross-border tax reconciliation, and SOX 404 / ISA-500 Four-Eyes governance.</p>
+</div>
+""", unsafe_allow_html=True)
 
 # --- Comprehensive Enterprise Standard Operating Procedure & Technical Manual ---
 with st.expander("📖 Comprehensive Procedure & Configuration Manual (SOX 404 / ISA-500 Standard)", expanded=False):
@@ -300,11 +398,11 @@ class AuditCertificatePDF(FPDF):
         self.logo_path = logo_path
 
     def header(self):
-        self.set_fill_color(31, 78, 121)
+        self.set_fill_color(27, 54, 93)  # Professional Oxford Navy
         self.rect(0, 0, 210, 16, 'F')
         self.set_text_color(255, 255, 255)
         self.set_font('Helvetica', 'B', 11)
-        self.cell(0, 4, 'AUTORECONFLOW - INTERNAL CONTROL AUDIT CERTIFICATE', 0, 1, 'C')
+        self.cell(0, 4, 'AUTORECONFLOW - FINANCIAL RECONCILIATION, TAX & AUDIT CERTIFICATE', 0, 1, 'C')
         self.ln(6)
 
     def footer(self):
@@ -339,7 +437,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     # Left Header: Entity Information
     pdf.set_xy(10, y_brand_start)
     pdf.set_font('Helvetica', 'B', 13)
-    pdf.set_text_color(31, 78, 121)
+    pdf.set_text_color(27, 54, 93)
     pdf.cell(120, 6, comp_name, ln=True)
 
     if comp_uid:
@@ -360,22 +458,22 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
             pass
 
     pdf.set_y(max(pdf.get_y() + 3, y_brand_start + 18))
-    pdf.set_draw_color(210, 220, 235)
+    pdf.set_draw_color(203, 213, 225)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(4)
 
     # Document Headings
     pdf.set_font('Helvetica', 'B', 14)
-    pdf.set_text_color(31, 78, 121)
-    pdf.cell(0, 7, 'Financial Reconciliation Sign-Off Certificate', ln=True, align='L')
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(0, 7, 'Financial Reconciliation & Tax Audit Certificate', ln=True, align='L')
     pdf.set_font('Helvetica', 'I', 8.5)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 4.5, 'Compliance Certification under PCAOB AS 2201 / SOX Section 404 & ISA-500 Standards', ln=True, align='L')
     pdf.ln(3)
 
     # Assertion Verification Block
-    pdf.set_fill_color(245, 247, 250)
-    pdf.set_draw_color(200, 210, 225)
+    pdf.set_fill_color(248, 250, 252)
+    pdf.set_draw_color(203, 213, 225)
     pdf.rect(10, pdf.get_y(), 190, 22, 'DF')
     pdf.set_xy(14, pdf.get_y() + 2)
 
@@ -410,7 +508,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     # Metric Table
     pdf.set_text_color(255, 255, 255)
-    pdf.set_fill_color(31, 78, 121)
+    pdf.set_fill_color(27, 54, 93)
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.cell(110, 6.5, 'Reconciliation Assertion Category', 1, 0, 'L', fill=True)
     pdf.cell(35, 6.5, 'Record Count', 1, 0, 'C', fill=True)
@@ -439,17 +537,17 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     # Sign-Off Blocks
     pdf.set_font('Helvetica', 'B', 10.5)
-    pdf.set_text_color(31, 78, 121)
+    pdf.set_text_color(27, 54, 93)
     pdf.cell(0, 5.5, 'Four-Eyes Internal Control Attestation', ln=True)
     pdf.ln(2)
 
     # Preparer Box
     y_start = pdf.get_y()
-    pdf.set_fill_color(250, 252, 255)
+    pdf.set_fill_color(248, 250, 252)
     pdf.rect(10, y_start, 92, 40, 'DF')
     pdf.set_xy(14, y_start + 2.5)
     pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(31, 78, 121)
+    pdf.set_text_color(27, 54, 93)
     pdf.cell(85, 4.5, 'PREPARER (First Line of Defense)', 0, 1)
 
     pdf.set_x(14)
@@ -467,11 +565,11 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.cell(85, 5.5, sig_text, 0, 1)
 
     # Reviewer Box
-    pdf.set_fill_color(250, 252, 255)
+    pdf.set_fill_color(248, 250, 252)
     pdf.rect(108, y_start, 92, 40, 'DF')
     pdf.set_xy(112, y_start + 2.5)
     pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(31, 78, 121)
+    pdf.set_text_color(27, 54, 93)
     pdf.cell(85, 4.5, 'REVIEWER (Supervisory Review / Oversight)', 0, 1)
 
     pdf.set_x(112)
@@ -491,7 +589,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     # Audit Notes & Clarification Thread
     pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(31, 78, 121)
+    pdf.set_text_color(27, 54, 93)
     pdf.cell(0, 4.5, 'Supervisory Audit Notes & Resolution Trail:', ln=True)
     pdf.set_font('Helvetica', 'I', 8)
     pdf.set_text_color(60, 60, 60)
@@ -531,18 +629,18 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     comp_addr = company_info.get("address", "") if company_info else ""
     comp_uid = company_info.get("uid", "") if company_info else ""
 
-    navy_header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    section_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    navy_header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+    section_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
     white_bold_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     bold_font = Font(name="Calibri", size=11, bold=True)
     regular_font = Font(name="Calibri", size=11)
     italic_font = Font(name="Calibri", size=10, italic=True, color="595959")
-    title_font = Font(name="Calibri", size=14, bold=True, color="1F4E79")
+    title_font = Font(name="Calibri", size=14, bold=True, color="1B365D")
     thin_border = Border(
-        left=Side(style="thin", color="D9D9D9"),
-        right=Side(style="thin", color="D9D9D9"),
-        top=Side(style="thin", color="D9D9D9"),
-        bottom=Side(style="thin", color="D9D9D9")
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1")
     )
 
     m_copy = matched_df.copy()
@@ -571,7 +669,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary = workbook.create_sheet(title="Audit & Control Summary", index=0)
         ws_summary.views.sheetView[0].showGridLines = True
 
-        ws_summary["A1"] = f"{comp_name} — Enterprise Reconciliation & Control Report"
+        ws_summary["A1"] = f"{comp_name} — Financial Reconciliation, Tax & Control Workpaper"
         ws_summary["A1"].font = title_font
         ws_summary.merge_cells("A1:C1")
 
@@ -579,15 +677,15 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary["A2"].font = italic_font
         ws_summary.merge_cells("A2:C2")
 
-        ws_summary["A3"] = "SOX 404 / ISA-500 Standard Financial Statement Assertion Audit Trail"
-        ws_summary["A3"].font = Font(name="Calibri", size=9, italic=True, color="7F7F7F")
+        ws_summary["A3"] = "SOX 404 / ISA-500 Standard Financial Statement & Tax Assertion Audit Trail"
+        ws_summary["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
         ws_summary.merge_cells("A3:C3")
 
         metadata = [
             ("Execution Timestamp (UTC):", timestamp_utc),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
             ("Matching Methodology:", "3-Tier (Deterministic Exact -> Levenshtein/Jaro-Winkler Fuzzy)"),
-            ("Control Assertion Target:", "Completeness, Accuracy, and Valuation (Financial Controls)")
+            ("Control Assertion Target:", "Completeness, Accuracy, and Valuation (Financial & Tax Controls)")
         ]
         ws_summary.append([])
         for label, val in metadata:
@@ -896,12 +994,12 @@ if df_a is not None and df_b is not None:
         un_a_pd = res["un_a_pd"]
         un_b_pd = res["un_b_pd"]
 
-        st.subheader("📊 Reconciliation & Control Summary (SOX 404 / ISA-500)")
+        st.markdown("#### 📊 Internal Control Summary & Transaction Metrics")
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Tier-1 Deterministic Matches", f"{len(matched_pd):,} records")
-        k2.metric("Tier-2 Discrepancy Review", f"{len(fuzzy_pd):,} records")
-        k3.metric("Source A Exceptions (Ledger)", f"{len(un_a_pd):,} records")
-        k4.metric("Source B Exceptions (External)", f"{len(un_b_pd):,} records")
+        k1.metric("Tier-1 Exact Matches", f"{len(matched_pd):,} records")
+        k2.metric("Tier-2 Variance Review", f"{len(fuzzy_pd):,} records")
+        k3.metric("Source A Ledger Exceptions", f"{len(un_a_pd):,} records")
+        k4.metric("Source B External Exceptions", f"{len(un_b_pd):,} records")
 
         # Session tracking state
         is_prep_done = st.session_state.get("preparer_completed", False)

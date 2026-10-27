@@ -90,11 +90,12 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary.views.sheetView[0].showGridLines = True
 
         ws_summary["A1"] = "AutoReconFlow — Enterprise Reconciliation & Control Report"
-	ws_summary.merge_cells("A1:C1")
-	ws_summary.merge_cells("A2:C2")
         ws_summary["A1"].font = title_font
+        ws_summary.merge_cells("A1:C1")
+
         ws_summary["A2"] = "SOX 404 / ISA-500 Standard Financial Statement Assertion Audit Trail"
         ws_summary["A2"].font = italic_font
+        ws_summary.merge_cells("A2:C2")
 
         # Section 1: System Control Metadata
         metadata = [
@@ -167,9 +168,9 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 cell.font = bold_font if c == 1 else regular_font
                 cell.border = thin_border
 
-        # Sizing columns on the summary sheet
+        # Sizing columns cleanly on the summary sheet
         ws_summary.column_dimensions["A"].width = 64
-        ws_summary.column_dimensions["B"].width = 58
+        ws_summary.column_dimensions["B"].width = 60
         ws_summary.column_dimensions["C"].width = 65
 
         # -------------------------------------------------------------
@@ -201,7 +202,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                     if isinstance(cell.value, (int, float)):
                         cell.number_format = "#,##0.00"
 
-            # Auto-adjust column widths on data sheets
             for col in ws.columns:
                 max_len = 0
                 col_letter = get_column_letter(col[0].column)
@@ -378,7 +378,6 @@ if df_a is not None and df_b is not None:
         map_a = {"id": id_a, "party": party_a, "amt": amt_a}
         map_b = {"id": id_b, "party": party_b, "amt": amt_b}
 
-        # Convert to Polars for high-speed execution
         pl_a = pl.from_pandas(df_a)
         pl_b = pl.from_pandas(df_b)
 
@@ -391,7 +390,6 @@ if df_a is not None and df_b is not None:
                 st.error(f"Reconciliation error: {str(e)}")
                 st.stop()
 
-        # Cache reconciliation outputs in session state so sign-offs don't trigger reruns
         st.session_state["recon_results"] = {
             "matched_pd": matched.to_pandas(),
             "fuzzy_pd": fuzzy.to_pandas(),
@@ -404,7 +402,6 @@ if df_a is not None and df_b is not None:
             "tolerance": tolerance
         }
 
-    # Render results and sign-off if reconciliation was executed
     if "recon_results" in st.session_state:
         res = st.session_state["recon_results"]
         matched_pd = res["matched_pd"]
@@ -458,7 +455,6 @@ if df_a is not None and df_b is not None:
             "audit_comments": audit_notes
         }
 
-        # Top-level SOX-Compliant Multi-Tab Excel Export Button with Embedded Sign-Offs
         excel_bytes = generate_consolidated_workbook(matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, tolerance=res["tolerance"])
         st.download_button(
             label="📦 Export SOX-Compliant Audit Workpaper with Verified Sign-Offs (.xlsx)",
@@ -470,7 +466,6 @@ if df_a is not None and df_b is not None:
         )
         st.write("")
 
-        # 4 Separate Review Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "✅ Tier-1 Deterministic Matches",
             "🔍 Tier-2 Discrepancy & Threshold Review",

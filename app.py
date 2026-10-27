@@ -257,14 +257,25 @@ st.sidebar.markdown(
     """
     **Enterprise Financial Reconciliation, Tax & Audit Suite**
     
-    * **Practitioner License ($79 / ₹6,999)**: Single-seat desktop deployment, unlimited matching, automated email alerts, and SHA-256 PDF certificates.
-    * **Business & Tax Suite ($199 / ₹16,999)**: Subledger-to-bank & GST/VAT portal modules, custom white-labeling, and full source code access.
-    * **Enterprise Turnkey ($499 / ₹39,999)**: Private cloud/server deployment, multi-user database integration, and compliance onboarding.
-    
-    [👉 **Purchase Commercial License Now**](https://www.autoreconflow.com)
-    
+    * **Practitioner License (₹6,999)**: Single-seat desktop deployment, unlimited matching, automated email alerts, and SHA-256 PDF certificates.
+    * **Business & Tax Suite (₹16,999)**: Subledger-to-bank & GST/VAT portal modules, custom white-labeling, and full source code access.
+    * **Enterprise Turnkey (₹39,999)**: Private cloud/server deployment, multi-user database integration, and compliance onboarding.
+    """
+)
+
+# Live Razorpay Multi-Tier Checkout Button
+st.sidebar.link_button(
+    "💳 Purchase Commercial License (UPI / Cards / NetBanking)",
+    "https://rzp.io/rzp/G2XPtSpy",
+    use_container_width=True,
+    type="primary"
+)
+
+st.sidebar.markdown(
+    """
     *Need custom ERP/SAP integration or an enterprise demo?*  
-    📧 **Contact Sales:** [contact@rakeshsingh.tech](mailto:contact@rakeshsingh.tech)
+    📧 **Contact Sales:** [contact@rakeshsingh.tech](mailto:contact@rakeshsingh.tech)  
+    📞 **Direct Desk:** +91 7042218226
     """
 )
 st.sidebar.caption("Pure Python • 0 Token Costs • 100% On-Premise Data Privacy")

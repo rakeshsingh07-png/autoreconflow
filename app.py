@@ -62,21 +62,40 @@ with st.expander("📖 User Guide & Ingestion Guidelines (SOX / ISA-500 Standard
     | **PDF Documents** | • **Digitally generated / vector PDFs** (Direct exports from online banking, ERPs like SAP/Oracle, or 'Print-to-PDF' statements) containing native tabular grids | • **Scanned paper / photocopies / flat images** (requires an external OCR layer)<br>• Password-locked / encrypted PDFs<br>• Multi-column newspaper text layouts without tabular boundaries |
     """)
 
-# --- PDF Executive Sign-Off Certificate Generator ---
+# --- PDF Executive Sign-Off Certificate Generator (Unicode-Safe) ---
+def sanitize_pdf_text(text: str) -> str:
+    """Replaces unicode characters unsupported by core standard PDF fonts."""
+    if not text:
+        return ""
+    replacements = {
+        "—": "-",
+        "–": "-",
+        "’": "'",
+        "‘": "'",
+        "“": '"',
+        "”": '"',
+        "•": "*",
+        "…": "...",
+        "±": "+/-"
+    }
+    for orig, rep in replacements.items():
+        text = text.replace(orig, rep)
+    return text.encode("latin-1", "replace").decode("latin-1")
+
 class AuditCertificatePDF(FPDF):
     def header(self):
-        self.set_fill_color(31, 78, 121) # Corporate Navy
+        self.set_fill_color(31, 78, 121)
         self.rect(0, 0, 210, 16, 'F')
         self.set_text_color(255, 255, 255)
         self.set_font('Helvetica', 'B', 11)
-        self.cell(0, 4, 'AUTORECONFLOW — INTERNAL CONTROL AUDIT CERTIFICATE', 0, 1, 'C')
+        self.cell(0, 4, 'AUTORECONFLOW - INTERNAL CONTROL AUDIT CERTIFICATE', 0, 1, 'C')
         self.ln(8)
 
     def footer(self):
         self.set_y(-18)
         self.set_font('Helvetica', 'I', 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 4, 'Confidential — For Authorized Supervisory & Statutory Audit Inspection Only | SOX 404 Assertion', 0, 1, 'C')
+        self.cell(0, 4, 'Confidential - For Authorized Supervisory & Statutory Audit Inspection Only | SOX 404 Assertion', 0, 1, 'C')
         self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
 
 def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance) -> bytes:
@@ -103,12 +122,12 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.set_text_color(50, 50, 50)
     pdf.cell(45, 5, 'Execution Timestamp (UTC):', 0, 0)
     pdf.set_font('Helvetica', '', 9)
-    pdf.cell(55, 5, signoff_data.get('preparer_date', ''), 0, 0)
+    pdf.cell(55, 5, sanitize_pdf_text(signoff_data.get('preparer_date', '')), 0, 0)
 
     pdf.set_font('Helvetica', 'B', 9)
     pdf.cell(40, 5, 'Workpaper Reference:', 0, 0)
     pdf.set_font('Helvetica', '', 9)
-    pdf.cell(45, 5, signoff_data.get('wp_ref', ''), 0, 1)
+    pdf.cell(45, 5, sanitize_pdf_text(signoff_data.get('wp_ref', '')), 0, 1)
 
     pdf.set_x(14)
     pdf.set_font('Helvetica', 'B', 9)
@@ -118,10 +137,10 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.set_font('Helvetica', 'B', 9)
     pdf.cell(40, 5, 'Review Verdict:', 0, 0)
-    verdict = signoff_data.get('review_verdict', 'Approved / Cleared')
+    verdict = sanitize_pdf_text(signoff_data.get('review_verdict', 'Approved / Cleared'))
     pdf.set_font('Helvetica', 'B', 9)
     if 'Approved' in verdict:
-        pdf.set_text_color(16, 124, 65) # Forest Green
+        pdf.set_text_color(16, 124, 65)
     else:
         pdf.set_text_color(180, 40, 40)
     pdf.cell(45, 5, verdict, 0, 1)
@@ -158,7 +177,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.ln(8)
 
-    # Governance Four-Eyes Electronic Signatures
+    # Four-Eyes Electronic Signatures
     pdf.set_font('Helvetica', 'B', 11)
     pdf.set_text_color(31, 78, 121)
     pdf.cell(0, 6, 'Four-Eyes Internal Control Attestation', ln=True)
@@ -176,11 +195,11 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.set_x(14)
     pdf.set_font('Helvetica', '', 8.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.5, f"Name: {signoff_data.get('preparer_name')}", 0, 1)
+    pdf.cell(85, 4.5, f"Name: {sanitize_pdf_text(signoff_data.get('preparer_name'))}", 0, 1)
     pdf.set_x(14)
-    pdf.cell(85, 4.5, f"System / Emp ID: {signoff_data.get('preparer_id')}", 0, 1)
+    pdf.cell(85, 4.5, f"System / Emp ID: {sanitize_pdf_text(signoff_data.get('preparer_id'))}", 0, 1)
     pdf.set_x(14)
-    pdf.cell(85, 4.5, f"Timestamp: {signoff_data.get('preparer_date')}", 0, 1)
+    pdf.cell(85, 4.5, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date'))}", 0, 1)
     pdf.set_x(14)
     sig_text = "[VERIFIED ELECTRONIC SIGNATURE]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
     pdf.set_font('Helvetica', 'B', 8)
@@ -198,11 +217,11 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.set_x(112)
     pdf.set_font('Helvetica', '', 8.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.5, f"Name: {signoff_data.get('reviewer_name')}", 0, 1)
+    pdf.cell(85, 4.5, f"Name: {sanitize_pdf_text(signoff_data.get('reviewer_name'))}", 0, 1)
     pdf.set_x(112)
-    pdf.cell(85, 4.5, f"Designation: {signoff_data.get('reviewer_title')}", 0, 1)
+    pdf.cell(85, 4.5, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title'))}", 0, 1)
     pdf.set_x(112)
-    pdf.cell(85, 4.5, f"Timestamp: {signoff_data.get('reviewer_date')}", 0, 1)
+    pdf.cell(85, 4.5, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date'))}", 0, 1)
     pdf.set_x(112)
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_text_color(16, 124, 65)
@@ -216,11 +235,12 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.cell(0, 5, 'Supervisory Audit Notes:', ln=True)
     pdf.set_font('Helvetica', 'I', 8.5)
     pdf.set_text_color(60, 60, 60)
-    pdf.multi_cell(0, 4.5, signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
+    notes_clean = sanitize_pdf_text(signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
+    pdf.multi_cell(0, 4.5, notes_clean)
 
     pdf.ln(4)
 
-    # Cryptographic Hash Stamping
+    # SHA-256 Checksum
     raw_fingerprint = f"{signoff_data.get('wp_ref')}_{matched_count}_{fuzzy_count}_{un_a_count}_{un_b_count}_{signoff_data.get('preparer_date')}_{tolerance}"
     doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
 
@@ -561,7 +581,6 @@ if df_a is not None and df_b is not None:
             "un_b_pl": un_b,
             "tolerance": tolerance
         }
-        # Reset final sign-off lock state on new recon run
         st.session_state["final_signed_off"] = False
 
     if "recon_results" in st.session_state:
@@ -617,7 +636,6 @@ if df_a is not None and df_b is not None:
                 "audit_comments": audit_notes
             }
 
-            # Finalize and Lock Action Button
             if st.button("🔒 Final Sign-Off & Lock Audit Workpaper", type="secondary"):
                 if not prep_signed:
                     st.error("Preparer verification box must be checked before final sign-off.")
@@ -626,11 +644,10 @@ if df_a is not None and df_b is not None:
                     st.session_state["saved_signoff_payload"] = signoff_payload
                     st.success("✅ Audit Workpaper formally finalized and locked under Four-Eyes governance.")
 
-        # Persist sign-off state
         active_signoff = st.session_state.get("saved_signoff_payload", signoff_payload)
 
         # -------------------------------------------------------------
-        # Official Dual Export Hub: SOX Excel Workpaper + PDF Audit Certificate
+        # Dual Export Hub: SOX Excel Workpaper + PDF Audit Certificate
         # -------------------------------------------------------------
         exp_col1, exp_col2 = st.columns(2)
 

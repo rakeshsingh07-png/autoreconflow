@@ -109,7 +109,7 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
                         "Party_B": row_b["_clean_party"],
                         "Amount_A": row_a["_clean_amount"],
                         "Amount_B": row_b["_clean_amount"],
-                        "ID_Confidence": f"{id_score}%",
+                        "ID_Confidence": f"{round(float(id_score), 1)}%",
                         "Party_Confidence": f"{party_score}%",
                         "Status": "Fuzzy Match Review"
                     })

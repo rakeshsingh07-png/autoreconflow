@@ -108,6 +108,50 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- License Verification Engine (Deterministic SHA-256) ---
+def verify_license_key(email: str, license_key: str):
+    """Validates the license key against the email, plan prefix, and monthly salt."""
+    if not email or not license_key:
+        return False, None
+        
+    email_clean = email.strip().lower()
+    key_clean = license_key.strip().upper()
+    salt = "AutoReconFlowSecretKey2026"
+    
+    tier_map = {
+        "ARF-PRAC": "Practitioner",
+        "ARF-BIZ": "Business & Tax Suite",
+        "ARF-ENT": "Enterprise Turnkey"
+    }
+    
+    parts = key_clean.split("-")
+    if len(parts) != 5:
+        return False, None
+        
+    prefix = f"{parts[0]}-{parts[1]}"
+    if prefix not in tier_map:
+        return False, None
+        
+    tier_name = tier_map[prefix]
+    
+    # Check current month and previous month for validity
+    current_date = datetime.datetime.utcnow()
+    prev_month_date = current_date.replace(day=1) - datetime.timedelta(days=1)
+    
+    months_to_test = [
+        current_date.strftime("%Y%m"),
+        prev_month_date.strftime("%Y%m")
+    ]
+    
+    for m in months_to_test:
+        raw_str = f"{email_clean}:{tier_name}:{salt}:{m}"
+        h = hashlib.sha256(raw_str.encode()).hexdigest().upper()
+        expected_key = f"{prefix}-{h[:4]}-{h[4:8]}-{h[8:12]}"
+        if key_clean == expected_key:
+            return True, tier_name
+            
+    return False, None
+
 # --- Pure Python Token-Free Email Dispatcher ---
 def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
     """Sends notification emails using pure Python smtplib with zero token cost."""
@@ -251,6 +295,28 @@ with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
 
 st.sidebar.divider()
 
+# --- Interactive In-App License Key Verification Widget ---
+with st.sidebar.expander("🔑 License Activation & Verification", expanded=True):
+    user_email_input = st.text_input("Registered Email", placeholder="buyer@clientdomain.com", key="lic_user_email")
+    user_key_input = st.text_input("License Key", placeholder="ARF-PRAC-XXXX-XXXX-XXXX", key="lic_user_key")
+    
+    if user_email_input and user_key_input:
+        is_valid, active_tier = verify_license_key(user_email_input, user_key_input)
+        if is_valid:
+            st.success(f"✅ Verified: {active_tier}")
+            st.session_state["licensed"] = True
+            st.session_state["license_tier"] = active_tier
+        else:
+            st.error("❌ Invalid License Key or Email Mismatch.")
+            st.session_state["licensed"] = False
+            st.session_state["license_tier"] = None
+    else:
+        st.session_state["licensed"] = False
+        st.session_state["license_tier"] = None
+        st.caption("Enter your registered credentials to unlock full audit features.")
+
+st.sidebar.divider()
+
 # High-Converting 3-Tier Commercial Licensing Hub
 st.sidebar.markdown("### 💼 Commercial Licensing & Deployment")
 st.sidebar.markdown(
@@ -345,30 +411,30 @@ with st.expander("📖 Comprehensive Procedure & Configuration Manual (SOX 404 /
 
     ```
     [ Stage 1: Preparer Audit & Submission ]
-         │
-         ▼
+          │
+          ▼
     Preparer uploads Source A & Source B -> Runs matching engine -> Reviews metrics -> 
     Inputs Emp ID & checks verification box -> Clicks "Mark Preparer Task as Complete & Notify Reviewer"
-         │
-         ├──────────────────────────► [ Automated HTML Email sent to Reviewer ]
-         │
+          │
+          ├──────────────────────────► [ Automated HTML Email sent to Reviewer ]
+          │
     [ Stage 2: Supervisory Review & Line-Item Query ]
-         │
-         ▼
+          │
+          ▼
     Reviewer inspects exceptions. Two pathways available:
-         ├── Pathway 1 (Direct Clearance): Selects verdict -> Clicks "Approve & Finalize Sign-Off"
-         └── Pathway 2 (Line-Item Clarification Loop):
-               1. Reviewer selects disputed transaction from dropdown.
-               2. Enters audit observation (e.g., "Variance of 50.00 requires swift advice copy").
-               3. Clicks "Send Query Back to Preparer".
-               4. [ Automated Email dispatched to Preparer ].
-               5. Preparer logs in, enters line-item clarification, and resubmits.
-               6. [ Automated Email dispatched to Reviewer ].
-               7. Reviewer accepts explanation and clicks "Accept Explanation & Formally Approve".
-         │
+          ├── Pathway 1 (Direct Clearance): Selects verdict -> Clicks "Approve & Finalize Sign-Off"
+          └── Pathway 2 (Line-Item Clarification Loop):
+                1. Reviewer selects disputed transaction from dropdown.
+                2. Enters audit observation (e.g., "Variance of 50.00 requires swift advice copy").
+                3. Clicks "Send Query Back to Preparer".
+                4. [ Automated Email dispatched to Preparer ].
+                5. Preparer logs in, enters line-item clarification, and resubmits.
+                6. [ Automated Email dispatched to Reviewer ].
+                7. Reviewer accepts explanation and clicks "Accept Explanation & Formally Approve".
+          │
     [ Stage 3: Audit Deliverable Sealing ]
-         │
-         ▼
+          │
+          ▼
     Excel Workpaper & Signed PDF Certificate unlock for download. 
     Full query dialogue is permanently stamped into the document body under the SHA-256 seal.
     ```

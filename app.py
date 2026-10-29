@@ -661,8 +661,8 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
         ws_sum["A2"].font = Font(name="Calibri", size=9.5, italic=True, color="595959")
         
         headers = ["GSTR-3B Statutory Bucket", "Invoice Count", "Total Tax / ITC Impact (₹)", "Statutory Recommendation & Action"]
-        ws_sum.append([])
-        ws_sum.append(headers)
+        _ = ws_sum.append([])
+        _ = ws_sum.append(headers)
         
         for c in range(1, 5):
             cell = ws_sum.cell(row=4, column=c)
@@ -682,7 +682,7 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
         ]
         
         for r_data in rows:
-            ws_sum.append(list(r_data))
+            _ = ws_sum.append(list(r_data))
             
         for r in range(5, 9):
             ws_sum.cell(row=r, column=1).font = bold_f
@@ -725,7 +725,6 @@ def execute_two_sided_vat_rcm_reconciliation(df_books: pd.DataFrame, df_ext: pd.
     bks = df_books.copy()
     ext = df_ext.copy()
 
-    # Normalization keys
     bks['_tax_id'] = bks[map_books['vat_id']].apply(clean_tax_id)
     bks['_inv'] = bks[map_books['invoice']].apply(normalize_invoice_no)
     bks['_key'] = bks['_tax_id'] + "_" + bks['_inv']
@@ -734,14 +733,12 @@ def execute_two_sided_vat_rcm_reconciliation(df_books: pd.DataFrame, df_ext: pd.
     ext['_inv'] = ext[map_ext['invoice']].apply(normalize_invoice_no)
     ext['_key'] = ext['_tax_id'] + "_" + ext['_inv']
 
-    # Numeric fields
     bks['_bks_net'] = pd.to_numeric(bks[map_books['net_amt']], errors='coerce').fillna(0.0)
     bks['_bks_self_tax'] = pd.to_numeric(bks[map_books['self_assessed']], errors='coerce').fillna(0.0) if map_books.get('self_assessed') else 0.0
 
     ext['_ext_net'] = pd.to_numeric(ext[map_ext['net_amt']], errors='coerce').fillna(0.0)
     ext['_ext_charged_tax'] = pd.to_numeric(ext[map_ext['charged_vat']], errors='coerce').fillna(0.0)
 
-    # Perform full outer join
     merged = pd.merge(bks, ext, on='_key', how='outer', suffixes=('_BOOKS', '_EXT'), indicator=True)
 
     b1_matched, b2_missing_in_books, b3_missing_in_ext, b4_discrepancies = [], [], [], []
@@ -865,16 +862,16 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             ("Matching Methodology:", "3-Tier (Deterministic Exact -> Levenshtein/Jaro-Winkler Fuzzy)"),
             ("Control Assertion Target:", "Completeness, Accuracy, and Valuation (Financial & Tax Controls)")
         ]
-        ws_summary.append([])
+        _ = ws_summary.append([])
         for label, val in metadata:
-            ws_summary.append([label, val])
+            _ = ws_summary.append([label, val])
 
         for r in range(5, 9):
             ws_summary.cell(row=r, column=1).font = bold_font
             ws_summary.cell(row=r, column=2).font = regular_font
 
-        ws_summary.append([])
-        ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
+        _ = ws_summary.append([])
+        _ = ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
         summary_header_row = 10
         for col_idx in range(1, 4):
             cell = ws_summary.cell(row=summary_header_row, column=col_idx)
@@ -890,7 +887,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ]
 
         for item in summary_rows:
-            ws_summary.append(list(item))
+            _ = ws_summary.append(list(item))
 
         for r in range(11, 15):
             for c in range(1, 4):
@@ -903,7 +900,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 elif c == 3:
                     cell.alignment = Alignment(horizontal="center")
 
-        ws_summary.append([])
+        _ = ws_summary.append([])
         sign_off_header_row = 16
         ws_summary.cell(row=sign_off_header_row, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)").font = bold_font
         ws_summary.cell(row=sign_off_header_row, column=1).fill = section_fill
@@ -918,7 +915,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ]
 
         for c1, c2, c3 in signoff_entries:
-            ws_summary.append([c1, c2, c3])
+            _ = ws_summary.append([c1, c2, c3])
 
         for r in range(sign_off_header_row + 1, sign_off_header_row + 5):
             for c in range(1, 4):
@@ -1329,7 +1326,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
                 st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
 
 # ==============================================================================
-# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (CLEAN NO-NONE IMPLEMENTATION) ---
+# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (100% CLEAN DELIVERABLES) ---
 # ==============================================================================
 with tab_universal:
     st.markdown("""
@@ -1527,7 +1524,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                         "Exceptions to Review": f"{len(un_a_pd) + len(un_b_pd) + len(fuzzy_pd):,} items"
                                     }
                                 )
-                                ok, info = send_workflow_email(smtp_cfg, rev_target_email, "ACTION REQUIRED: Reconciliation Sign-Off Pending", plain_body, html_body)
+                                _ = send_workflow_email(smtp_cfg, rev_target_email, "ACTION REQUIRED: Reconciliation Sign-Off Pending", plain_body, html_body)
                                 st.rerun()
                     else:
                         st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
@@ -1569,7 +1566,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                     "The supervisory review cycle has been formally cleared. Final audit artifacts are unlocked.",
                                     {"Reviewer": f"{rev_name} ({rev_title})", "Verdict": rev_verdict, "Approved Timestamp": rev_date}
                                 )
-                                send_workflow_email(smtp_cfg, prep_mail, f"COMPLETED: Reconciliation Workpaper [{wp_ref}] Approved", "Workpaper formally cleared.", html_approved)
+                                _ = send_workflow_email(smtp_cfg, prep_mail, f"COMPLETED: Reconciliation Workpaper [{wp_ref}] Approved", "Workpaper formally cleared.", html_approved)
                                 st.rerun()
                         elif is_rev_approved:
                             st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
@@ -1601,7 +1598,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                     "The Reviewer has raised an audit observation on this line item.",
                                     {"Item Queried": sel_item, "Reviewer Note": q_text, "Queried At": query_state["reviewer_query_time"]}
                                 )
-                                send_workflow_email(smtp_cfg, target_prep_mail, f"ACTION REQUIRED: Reviewer Clarification Query [{sel_item}]", q_text, html_query)
+                                _ = send_workflow_email(smtp_cfg, target_prep_mail, f"ACTION REQUIRED: Reviewer Clarification Query [{sel_item}]", q_text, html_query)
                                 st.rerun()
 
                 elif query_state["status"] == "PENDING_CLARIFICATION":
@@ -1620,7 +1617,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                 "The Preparer has responded to your observation.",
                                 {"Item ID": query_state["item_id"], "Preparer Explanation": prep_reply, "Resubmitted At": query_state["preparer_reply_time"]}
                             )
-                            send_workflow_email(smtp_cfg, target_rev_mail, f"EXPLANATION SUBMITTED: Item [{query_state['item_id']}]", prep_reply, html_reply)
+                            _ = send_workflow_email(smtp_cfg, target_rev_mail, f"EXPLANATION SUBMITTED: Item [{query_state['item_id']}]", prep_reply, html_reply)
                             st.rerun()
 
                 elif query_state["status"] == "RESUBMITTED":
@@ -1654,7 +1651,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             active_comp_info = {"name": company_name, "address": company_address, "uid": company_uid}
             query_trail_summary = f"Item {query_state['item_id']}: Queried -> Clarified -> Cleared." if query_state.get("status") == "APPROVED" else ""
 
-            # --- OFFICIAL DELIVERABLES HUB (CLEAN RENDERING - ZERO GHOST TEXT) ---
+            # --- OFFICIAL DELIVERABLES HUB ---
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             
             if is_rev_approved:
@@ -1662,7 +1659,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
                     tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state
                 )
-                st.download_button(
+                _ = st.download_button(
                     label="📊 Download Final SOX Audit Workpaper (.xlsx)",
                     data=excel_bytes,
                     file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
@@ -1676,7 +1673,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
                     logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
                 )
-                st.download_button(
+                _ = st.download_button(
                     label="📜 Download Official Signed PDF Audit Certificate",
                     data=pdf_bytes,
                     file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
@@ -1696,7 +1693,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             with tab1:
                 if len(matched_pd) > 0:
                     st.dataframe(matched_pd, use_container_width=True)
-                    st.download_button(
+                    _ = st.download_button(
                         label="📥 Download Deterministic Matches (CSV)",
                         data=res["matched_pl"].write_csv(),
                         file_name="deterministic_matches.csv",
@@ -1710,7 +1707,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(fuzzy_pd) > 0:
                     st.markdown("**Discrepancies Requiring Review (Levenshtein / Jaro-Winkler Variance)**")
                     st.dataframe(fuzzy_pd, use_container_width=True)
-                    st.download_button(
+                    _ = st.download_button(
                         label="📥 Download Discrepancy Candidates (CSV)",
                         data=res["fuzzy_pl"].write_csv(),
                         file_name="fuzzy_review_candidates.csv",
@@ -1724,7 +1721,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_a_pd) > 0:
                     st.markdown("**Source A Entries Missing in Source B (Unmatched Subledger Items)**")
                     st.dataframe(un_a_pd, use_container_width=True)
-                    st.download_button(
+                    _ = st.download_button(
                         label="📥 Download Source A Exceptions (CSV)",
                         data=res["un_a_pl"].write_csv(),
                         file_name="unmatched_ledger_exceptions.csv",
@@ -1738,7 +1735,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_b_pd) > 0:
                     st.markdown("**Source B Entries Missing in Source A (Timing & External Exceptions)**")
                     st.dataframe(un_b_pd, use_container_width=True)
-                    st.download_button(
+                    _ = st.download_button(
                         label="📥 Download Source B Exceptions (CSV)",
                         data=res["un_b_pl"].write_csv(),
                         file_name="unmatched_external_exceptions.csv",

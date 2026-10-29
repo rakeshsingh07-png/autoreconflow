@@ -1694,7 +1694,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 else:
                     st.info("🔒 Signed PDF Certificate unlocks automatically once the Reviewer approves.")
 
-            st.write("")
+            # Four Granular Audit Result Tabs
             tab1, tab2, tab3, tab4 = st.tabs([
                 "✅ Tier-1 Deterministic Matches",
                 "🔍 Tier-2 Discrepancy & Threshold Review",

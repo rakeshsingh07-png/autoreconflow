@@ -719,78 +719,83 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
     return output.getvalue()
 
 # ==============================================================================
-# --- 2. International VAT Reverse Charge (RCM) Engine ---
+# --- 2. Two-Sided International VAT Reverse Charge (RCM) Engine ---
 # ==============================================================================
-def execute_international_vat_rcm_audit(df: pd.DataFrame, mappings: dict, applicable_vat_rate=20.0, tolerance=1.0):
-    audit_df = df.copy()
-    inv_col = mappings['invoice']
-    sup_col = mappings['supplier']
-    vat_id_col = mappings['vat_id']
-    net_col = mappings['net_amt']
-    charged_vat_col = mappings['charged_vat']
-    is_rcm_col = mappings['is_rcm']
-    self_assessed_col = mappings.get('self_assessed')
+def execute_two_sided_vat_rcm_reconciliation(df_books: pd.DataFrame, df_ext: pd.DataFrame, map_books: dict, map_ext: dict, applicable_vat_rate=20.0, tolerance=1.0):
+    bks = df_books.copy()
+    ext = df_ext.copy()
 
-    audit_df['_net'] = pd.to_numeric(audit_df[net_col], errors='coerce').fillna(0.0)
-    audit_df['_charged_vat'] = pd.to_numeric(audit_df[charged_vat_col], errors='coerce').fillna(0.0)
-    audit_df['_self_assessed'] = pd.to_numeric(audit_df[self_assessed_col], errors='coerce').fillna(0.0) if self_assessed_col else 0.0
-    audit_df['_expected_rcm_vat'] = (audit_df['_net'] * (applicable_vat_rate / 100.0)).round(2)
-    
-    findings, compliance_status, tax_adjustment_req = [], [], []
+    # Normalization keys
+    bks['_tax_id'] = bks[map_books['vat_id']].apply(clean_tax_id)
+    bks['_inv'] = bks[map_books['invoice']].apply(normalize_invoice_no)
+    bks['_key'] = bks['_tax_id'] + "_" + bks['_inv']
 
-    for idx, row in audit_df.iterrows():
-        is_rcm_flag = str(row[is_rcm_col]).strip().upper() in ['YES', 'TRUE', '1', 'Y', 'RCM']
-        charged_tax = row['_charged_vat']
-        expected_rcm = row['_expected_rcm_vat']
-        self_tax = row['_self_assessed']
+    ext['_tax_id'] = ext[map_ext['vat_id']].apply(clean_tax_id)
+    ext['_inv'] = ext[map_ext['invoice']].apply(normalize_invoice_no)
+    ext['_key'] = ext['_tax_id'] + "_" + ext['_inv']
 
-        if is_rcm_flag:
-            if charged_tax > tolerance:
-                findings.append(f"NON-COMPLIANCE: Foreign VAT charged ({charged_tax:.2f}) on reverse-charge B2B service (HMRC Sec 8 / EU Art 196 violation).")
-                compliance_status.append("UNLAWFUL_SUPPLIER_VAT")
-                tax_adjustment_req.append(charged_tax)
-            elif self_tax > 0 and abs(self_tax - expected_rcm) > tolerance:
-                findings.append(f"RATE MISCALCULATION: Self-assessed deemed VAT ({self_tax:.2f}) deviates from standard rate ({expected_rcm:.2f}).")
-                compliance_status.append("RATE_VARIANCE")
-                tax_adjustment_req.append(expected_rcm - self_tax)
+    # Numeric fields
+    bks['_bks_net'] = pd.to_numeric(bks[map_books['net_amt']], errors='coerce').fillna(0.0)
+    bks['_bks_self_tax'] = pd.to_numeric(bks[map_books['self_assessed']], errors='coerce').fillna(0.0) if map_books.get('self_assessed') else 0.0
+
+    ext['_ext_net'] = pd.to_numeric(ext[map_ext['net_amt']], errors='coerce').fillna(0.0)
+    ext['_ext_charged_tax'] = pd.to_numeric(ext[map_ext['charged_vat']], errors='coerce').fillna(0.0)
+
+    # Perform full outer join
+    merged = pd.merge(bks, ext, on='_key', how='outer', suffixes=('_BOOKS', '_EXT'), indicator=True)
+
+    b1_matched, b2_missing_in_books, b3_missing_in_ext, b4_discrepancies = [], [], [], []
+
+    for idx, row in merged.iterrows():
+        status = row['_merge']
+        if status == 'both':
+            net_diff = abs(row['_bks_net'] - row['_ext_net'])
+            expected_rcm = round(row['_bks_net'] * (applicable_vat_rate / 100.0), 2)
+            charged_foreign_tax = row['_ext_charged_tax']
+            self_assessed_tax = row['_bks_self_tax']
+            is_rcm = str(row.get(map_books.get('is_rcm', ''), 'YES')).strip().upper() in ['YES', 'TRUE', '1', 'Y', 'RCM']
+            
+            if is_rcm and charged_foreign_tax > tolerance:
+                r_dict = row.to_dict()
+                r_dict['Audit_Finding'] = f"UNLAWFUL FOREIGN TAX: Supplier charged {charged_foreign_tax:.2f} foreign VAT on cross-border RCM service."
+                r_dict['Compliance_Status'] = "UNLAWFUL_SUPPLIER_VAT"
+                r_dict['Correction_Amount'] = charged_foreign_tax
+                b4_discrepancies.append(r_dict)
+            elif net_diff > tolerance:
+                r_dict = row.to_dict()
+                r_dict['Audit_Finding'] = f"NET BASE VARIANCE: Books ({row['_bks_net']:.2f}) vs Ext ({row['_ext_net']:.2f}) diff: {net_diff:.2f}"
+                r_dict['Compliance_Status'] = "BASE_DISCREPANCY"
+                r_dict['Correction_Amount'] = net_diff
+                b4_discrepancies.append(r_dict)
+            elif self_assessed_tax > 0 and abs(self_assessed_tax - expected_rcm) > tolerance:
+                r_dict = row.to_dict()
+                r_dict['Audit_Finding'] = f"SELF-ASSESSMENT RATE ERROR: Recorded deemed VAT ({self_assessed_tax:.2f}) vs Statutory ({expected_rcm:.2f})"
+                r_dict['Compliance_Status'] = "RATE_MISMATCH"
+                r_dict['Correction_Amount'] = expected_rcm - self_assessed_tax
+                b4_discrepancies.append(r_dict)
             else:
-                findings.append(f"STATUTORY CLEARED: Reverse Charge valid. Deemed Output VAT matched with Input Deduction (Net Tax = 0.00).")
-                compliance_status.append("AUDIT_CLEARED")
-                tax_adjustment_req.append(0.0)
-        else:
-            findings.append("DOMESTIC_STANDARD: Standard domestic supply. RCM not triggered.")
-            compliance_status.append("STANDARD_DOMESTIC")
-            tax_adjustment_req.append(0.0)
+                r_dict = row.to_dict()
+                r_dict['Audit_Finding'] = f"STATUTORY CLEARED: Valid RCM match. Deemed output matched with input recovery ({expected_rcm:.2f})."
+                r_dict['Compliance_Status'] = "CLEARED_RCM"
+                r_dict['Deemed_VAT'] = expected_rcm
+                b1_matched.append(r_dict)
+        elif status == 'left_only':
+            r_dict = row.to_dict()
+            r_dict['Audit_Finding'] = "In Books but missing in External/Supplier Statement"
+            r_dict['Compliance_Status'] = "MISSING_IN_EXTERNAL"
+            b3_missing_in_ext.append(r_dict)
+        elif status == 'right_only':
+            r_dict = row.to_dict()
+            r_dict['Audit_Finding'] = "Billed by Supplier / Reported in External, missing in Books"
+            r_dict['Compliance_Status'] = "UNRECORDED_LIABILITY"
+            b2_missing_in_books.append(r_dict)
 
-    audit_df['Audit_Findings'] = findings
-    audit_df['RCM_Compliance_Verdict'] = compliance_status
-    audit_df['Tax_Correction_Required'] = tax_adjustment_req
-    audit_df['Expected_Reverse_Charge_VAT'] = audit_df['_expected_rcm_vat']
+    df_b1 = pd.DataFrame(b1_matched).drop(columns=['_key', '_merge', '_tax_id_BOOKS', '_tax_id_EXT', '_inv_BOOKS', '_inv_EXT'], errors='ignore')
+    df_b2 = pd.DataFrame(b2_missing_in_books).drop(columns=['_key', '_merge', '_tax_id_BOOKS', '_tax_id_EXT', '_inv_BOOKS', '_inv_EXT'], errors='ignore')
+    df_b3 = pd.DataFrame(b3_missing_in_ext).drop(columns=['_key', '_merge', '_tax_id_BOOKS', '_tax_id_EXT', '_inv_BOOKS', '_inv_EXT'], errors='ignore')
+    df_b4 = pd.DataFrame(b4_discrepancies).drop(columns=['_key', '_merge', '_tax_id_BOOKS', '_tax_id_EXT', '_inv_BOOKS', '_inv_EXT'], errors='ignore')
 
-    return audit_df.drop(columns=['_net', '_charged_vat', '_self_assessed', '_expected_rcm_vat'])
-
-def generate_vat_rcm_excel_workpaper(audit_df: pd.DataFrame, entity_name: str, vat_reg_no: str, statutory_rate: float) -> bytes:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        audit_df.to_excel(writer, sheet_name="VAT RCM Audit Trail", index=False)
-        workbook = writer.book
-        ws = writer.sheets["VAT RCM Audit Trail"]
-        ws.views.sheetView[0].showGridLines = True
-
-        navy_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
-        white_bold = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        
-        for col_idx in range(1, len(audit_df.columns) + 1):
-            c_cell = ws.cell(row=1, column=col_idx)
-            c_cell.fill = navy_header
-            c_cell.font = white_bold
-
-        for col in ws.columns:
-            max_l = max(len(str(cell.value or "")) for cell in col)
-            col_let = get_column_letter(col[0].column)
-            ws.column_dimensions[col_let].width = min(max(max_l + 3, 15), 55)
-
-    return output.getvalue()
+    return df_b1, df_b2, df_b3, df_b4
 
 # ==============================================================================
 # --- Universal Multi-Tab Audit Workpaper Generator (openpyxl) ---
@@ -1204,93 +1209,125 @@ with tab_gst:
             with t4: st.dataframe(b4, use_container_width=True)
 
 # ==============================================================================
-# --- TAB 2: INTERNATIONAL VAT & REVERSE CHARGE (RCM) ---
+# --- TAB 2: INTERNATIONAL TWO-SIDED VAT & REVERSE CHARGE (RCM) ---
 # ==============================================================================
 with tab_vat:
     st.markdown("""
     <div class="compliance-badge-card">
-        <strong>🏛️ Statutory Compliance Framework (International VAT):</strong><br>
-        • <strong>UK VAT Act 1994, Section 8 & HMRC Making Tax Digital (MTD)</strong>: Mandates self-assessment of output tax on B2B cross-border services while allowing qualifying input tax deduction.<br>
+        <strong>🏛️ Statutory Compliance Framework (International Cross-Border VAT):</strong><br>
+        • <strong>Two-Sided Reconciliation</strong>: Matches Internal Purchase Books (Source A) against Overseas Supplier Invoices / Statements (Source B).<br>
+        • <strong>UK VAT Act 1994, Section 8 & HMRC MTD</strong>: Mandates self-assessment of output tax on B2B cross-border services while allowing qualifying input tax deduction.<br>
         • <strong>EU VAT Directive 2006/112/EC (Article 196)</strong>: Reverse Charge mechanism on cross-border transactions (Net Tax Payable = 0.00).<br>
-        • <strong>Statutory Risk Flag</strong>: Disallows deduction where foreign suppliers erroneously charge local VAT on cross-border services, preventing double-taxation liabilities.
+        • <strong>Statutory Risk Flag</strong>: Flags instances where foreign suppliers erroneously charge foreign VAT on B2B reverse-charge transactions.
     </div>
     """, unsafe_allow_html=True)
 
-    SAMPLE_INTL_VAT = """Invoice_Ref,Supplier_Name,Country,Supplier_VAT_ID,Net_Amount_GBP,Charged_VAT_GBP,Is_Reverse_Charge,Self_Assessed_VAT_GBP
-INV-UK-901,London Cloud Hosting,UK,GB123456789,12000.00,2400.00,NO,0.00
-INV-US-882,San Francisco SaaS Corp,USA,US-DEL-9921,45000.00,0.00,YES,9000.00
-INV-EU-741,Munich Enterprise Software,DE,DE987654321,18000.00,0.00,YES,900.00
-INV-SG-109,Singapore AI Solutions,SG,SG-UEN-2026,22000.00,4400.00,YES,4400.00
-INV-UK-441,Manchester Logistics Ltd,UK,GB987654321,6500.00,1300.00,NO,0.00"""
+    SAMPLE_BOOKS_VAT = """Invoice_Ref,Supplier_Name,Country,Supplier_VAT_ID,Net_Amount_GBP,Is_Reverse_Charge,Self_Assessed_VAT_GBP
+INV-UK-901,London Cloud Hosting,UK,GB123456789,12000.00,NO,0.00
+INV-US-882,San Francisco SaaS Corp,USA,US-DEL-9921,45000.00,YES,9000.00
+INV-EU-741,Munich Enterprise Software,DE,DE987654321,18000.00,YES,900.00
+INV-SG-109,Singapore AI Solutions,SG,SG-UEN-2026,22000.00,YES,4400.00
+INV-US-550,Boston Tech Consulting,USA,US-MA-4412,8500.00,YES,1700.00"""
 
-    use_intl_mock = st.checkbox("🧪 Load Cross-Border Corporate Subledger Test File", value=True, key="chk_intl_mock")
-    df_intl = pd.read_csv(io.StringIO(SAMPLE_INTL_VAT)) if use_intl_mock else None
+    SAMPLE_EXT_VAT = """Invoice_Number,Supplier_Legal_Name,Vendor_Tax_ID,Billed_Net_GBP,Charged_VAT_GBP,Billing_Currency
+INV901,London Cloud Hosting Ltd,GB123456789,12000.00,2400.00,GBP
+INV-US-882,San Francisco SaaS Corp,US-DEL-9921,45000.00,0.00,GBP
+INV-EU-741,Munich Enterprise Software,DE987654321,18000.00,0.00,GBP
+INV-SG-109,Singapore AI Solutions,SG-UEN-2026,22000.00,4400.00,GBP
+INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
+
+    use_intl_mock = st.checkbox("🧪 Load Real-World Two-Sided VAT Test Datasets", value=True, key="chk_intl_mock")
+    df_books_vat = pd.read_csv(io.StringIO(SAMPLE_BOOKS_VAT)) if use_intl_mock else None
+    df_ext_vat = pd.read_csv(io.StringIO(SAMPLE_EXT_VAT)) if use_intl_mock else None
 
     if not use_intl_mock:
-        f_intl = st.file_uploader("Upload Corporate Tax Ledger (CSV / Excel)", type=["csv", "xlsx"], key="up_intl")
-        if f_intl: df_intl = robust_read_file(f_intl)
+        v_col1, v_col2 = st.columns(2)
+        with v_col1:
+            st.subheader("Source A: Internal Purchase Books / ERP")
+            f_bks = st.file_uploader("Upload Internal Books (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_books")
+            if f_bks: df_books_vat = robust_read_file(f_bks)
+        with v_col2:
+            st.subheader("Source B: Supplier Statement / Tax Extract")
+            f_ext = st.file_uploader("Upload Supplier / External Statement (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_ext")
+            if f_ext: df_ext_vat = robust_read_file(f_ext)
 
-    if df_intl is not None:
-        st.success(f"✓ Loaded {len(df_intl)} corporate transaction lines for cross-border tax audit.")
-        
-        with st.expander("⚙️ VAT & RCM Configuration Parameters", expanded=True):
+    if df_books_vat is not None and df_ext_vat is not None:
+        st.success(f"✓ Source A Books ({len(df_books_vat)} rows) and Source B External ({len(df_ext_vat)} rows) loaded.")
+
+        with st.expander("⚙️ VAT Configuration & Two-Sided Column Mapping", expanded=True):
             r1, r2, r3 = st.columns(3)
             with r1:
-                statutory_vat = st.number_input("Domestic Statutory VAT Rate (%)", value=20.0, step=0.5, help="e.g., UK 20%, Germany 19%, UAE/Saudi 15%")
+                statutory_vat = st.number_input("Domestic Statutory VAT Rate (%)", value=20.0, step=0.5, key="stat_vat_rate")
             with r2:
-                audit_currency = st.selectbox("Reporting Base Currency", ["GBP (£)", "EUR (€)", "USD ($)", "AED (د.إ)", "SAR (﷼)"])
+                audit_currency = st.selectbox("Reporting Base Currency", ["GBP (£)", "EUR (€)", "USD ($)", "AED (د.إ)", "SAR (﷼)"], key="vat_curr")
             with r3:
-                rcm_tolerance = st.number_input("Allowed Variance Threshold", value=1.0, step=0.1)
+                rcm_tolerance = st.number_input("Allowed Variance Threshold", value=1.0, step=0.1, key="vat_tol")
 
-            cols_intl = list(df_intl.columns)
-            m_c1, m_c2, m_c3 = st.columns(3)
-            with m_c1:
-                map_inv = st.selectbox("Invoice Ref Column", cols_intl, index=0, key="m_inv")
-                map_sup = st.selectbox("Supplier Name Column", cols_intl, index=1, key="m_sup")
-            with m_c2:
-                map_vat_id = st.selectbox("Supplier VAT / Tax ID Column", cols_intl, index=3, key="m_vid")
-                map_net = st.selectbox("Net Taxable Amount Column", cols_intl, index=4, key="m_net")
-            with m_c3:
-                map_charged = st.selectbox("Supplier Charged VAT Column", cols_intl, index=5, key="m_chg")
-                map_is_rcm = st.selectbox("RCM Applicable Flag (Yes/No)", cols_intl, index=6, key="m_rcm")
-                map_self = st.selectbox("Self-Assessed VAT Ledger Column", cols_intl, index=7, key="m_slf")
+            cols_bks = list(df_books_vat.columns)
+            cols_ext = list(df_ext_vat.columns)
 
-        if st.button("🚀 Run International VAT & Reverse Charge Audit", type="primary", use_container_width=True, key="btn_run_intl"):
-            intl_mappings = {
-                'invoice': map_inv, 'supplier': map_sup, 'vat_id': map_vat_id,
-                'net_amt': map_net, 'charged_vat': map_charged,
-                'is_rcm': map_is_rcm, 'self_assessed': map_self
-            }
-            audited_intl_df = execute_international_vat_rcm_audit(df_intl, intl_mappings, applicable_vat_rate=statutory_vat, tolerance=rcm_tolerance)
-            st.session_state["intl_res"] = audited_intl_df
+            m_b1, m_b2 = st.columns(2)
+            with m_b1:
+                st.markdown("**Source A (Internal Books)**")
+                map_bks_inv = st.selectbox("Invoice Ref Column", cols_bks, index=0, key="mb_inv")
+                map_bks_taxid = st.selectbox("Supplier VAT/Tax ID Column", cols_bks, index=min(3, len(cols_bks)-1), key="mb_tid")
+                map_bks_net = st.selectbox("Net Taxable Amount Column", cols_bks, index=min(4, len(cols_bks)-1), key="mb_net")
+                map_bks_rcm = st.selectbox("Is Reverse Charge Flag Column", cols_bks, index=min(5, len(cols_bks)-1), key="mb_rcm")
+                map_bks_self = st.selectbox("Self-Assessed Deemed VAT Column", cols_bks, index=min(6, len(cols_bks)-1), key="mb_slf")
+            with m_b2:
+                st.markdown("**Source B (External Supplier Statement)**")
+                map_ext_inv = st.selectbox("Invoice Number Column", cols_ext, index=0, key="me_inv")
+                map_ext_taxid = st.selectbox("Vendor VAT/Tax ID Column", cols_ext, index=min(2, len(cols_ext)-1), key="me_tid")
+                map_ext_net = st.selectbox("Billed Net Amount Column", cols_ext, index=min(3, len(cols_ext)-1), key="me_net")
+                map_ext_chg = st.selectbox("Charged VAT Column", cols_ext, index=min(4, len(cols_ext)-1), key="me_chg")
 
-        if "intl_res" in st.session_state:
-            res_intl = st.session_state["intl_res"]
-            non_compliant_sup = len(res_intl[res_intl['RCM_Compliance_Verdict'] == 'UNLAWFUL_SUPPLIER_VAT'])
-            miscalc_self = len(res_intl[res_intl['RCM_Compliance_Verdict'] == 'RATE_VARIANCE'])
-            cleared_rcm = len(res_intl[res_intl['RCM_Compliance_Verdict'] == 'AUDIT_CLEARED'])
-            domestic_std = len(res_intl[res_intl['RCM_Compliance_Verdict'] == 'STANDARD_DOMESTIC'])
+        if st.button("🚀 Run Two-Sided Cross-Border VAT & RCM Reconciliation", type="primary", use_container_width=True, key="btn_run_two_sided_vat"):
+            mb = {'invoice': map_bks_inv, 'vat_id': map_bks_taxid, 'net_amt': map_bks_net, 'is_rcm': map_bks_rcm, 'self_assessed': map_bks_self}
+            me = {'invoice': map_ext_inv, 'vat_id': map_ext_taxid, 'net_amt': map_ext_net, 'charged_vat': map_ext_chg}
+            
+            b1_v, b2_v, b3_v, b4_v = execute_two_sided_vat_rcm_reconciliation(df_books_vat, df_ext_vat, mb, me, applicable_vat_rate=statutory_vat, tolerance=rcm_tolerance)
+            st.session_state["two_sided_vat_res"] = (b1_v, b2_v, b3_v, b4_v)
 
-            st.markdown("#### 📊 International VAT Governance Assertion Metrics")
+        if "two_sided_vat_res" in st.session_state:
+            b1_v, b2_v, b3_v, b4_v = st.session_state["two_sided_vat_res"]
+
+            st.markdown("#### 📊 Cross-Border VAT Governance Assertion Metrics")
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Reverse Charge Cleared", f"{cleared_rcm} lines", delta="Statutory Verified")
-            k2.metric("Unlawful Foreign Tax", f"{non_compliant_sup} lines", delta="Overpaid VAT", delta_color="inverse")
-            k3.metric("Self-Assessment Errors", f"{miscalc_self} lines", delta="Under/Over Declared", delta_color="inverse")
-            k4.metric("Domestic Transactions", f"{domestic_std} lines", delta="Standard Input")
+            k1.metric("Bucket 1: Direct Matches", f"{len(b1_v)} lines", delta="RCM Audit Cleared")
+            k2.metric("Bucket 2: Missing in Books", f"{len(b2_v)} lines", delta="Unrecorded Liability", delta_color="inverse")
+            k3.metric("Bucket 3: Missing in Statement", f"{len(b3_v)} lines", delta="Accrued in Books", delta_color="inverse")
+            k4.metric("Bucket 4: Rate & Tax Mismatches", f"{len(b4_v)} lines", delta="Foreign VAT / Discrepancy", delta_color="inverse")
 
-            vat_wb_bytes = generate_vat_rcm_excel_workpaper(res_intl, company_name, company_uid, statutory_vat)
+            # Excel Export for 4-bucket VAT Workpaper
+            output_vat = io.BytesIO()
+            with pd.ExcelWriter(output_vat, engine="openpyxl") as vat_writer:
+                b1_v.to_excel(vat_writer, sheet_name="Bucket 1 - Cleared RCM", index=False)
+                b2_v.to_excel(vat_writer, sheet_name="Bucket 2 - Missing in Books", index=False)
+                b3_v.to_excel(vat_writer, sheet_name="Bucket 3 - Missing in Ext", index=False)
+                b4_v.to_excel(vat_writer, sheet_name="Bucket 4 - Discrepancies", index=False)
+            
             st.download_button(
-                label="📥 Download Certified International VAT / RCM Audit Workpaper (.xlsx)",
-                data=vat_wb_bytes,
-                file_name=f"International_VAT_RCM_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                label="📥 Download Two-Sided VAT & RCM Audit Workpaper (.xlsx)",
+                data=output_vat.getvalue(),
+                file_name=f"Cross_Border_VAT_Two_Sided_Workpaper_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 use_container_width=True,
-                key="btn_dl_intl_wb"
+                key="btn_dl_two_sided_vat"
             )
 
-            st.markdown("##### 🔍 Transaction-by-Transaction Compliance Audit Grid")
-            st.dataframe(res_intl, use_container_width=True)
+            vt1, vt2, vt3, vt4 = st.tabs([
+                "✅ Bucket 1: Cleared RCM Matches",
+                "⚠️ Bucket 2: Missing in Books (Unrecorded)",
+                "🔍 Bucket 3: Missing in External Statement",
+                "🚫 Bucket 4: Rate & Tax Discrepancies (Unlawful Foreign Tax)"
+            ])
+            with vt1: st.dataframe(b1_v, use_container_width=True)
+            with vt2: st.dataframe(b2_v, use_container_width=True)
+            with vt3: st.dataframe(b3_v, use_container_width=True)
+            with vt4: 
+                st.dataframe(b4_v, use_container_width=True)
+                st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
 
 # ==============================================================================
 # --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (COMPLETE RESTORATION) ---
@@ -1365,7 +1402,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
     if df_a is not None and df_b is not None:
         cols_a = list(df_a.columns)
         cols_b = list(df_b.columns)
-        st.success(f"Loaded Source A ({len(df_a):,} rows) and Source B ({len(df_b):,} rows)")
+        st.success(f"Loaded Source A ({len(df_a):,} rows, {len(cols_a)} cols) and Source B ({len(df_b):,} rows, {len(cols_b)} cols)")
 
         with st.expander("🛠️ Configure Column Mappings", expanded=True):
             m1, m2 = st.columns(2)

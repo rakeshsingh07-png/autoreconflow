@@ -118,7 +118,6 @@ def verify_license_key(email: str, license_key: str):
     email_clean = email.strip().lower()
     key_clean = license_key.strip().upper()
     salt = "AutoReconFlowSecretKey2026"
-    
     tier_map = {
         "ARF-PRAC": "Practitioner",
         "ARF-BIZ": "Business & Tax Suite",
@@ -181,7 +180,7 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
     return pl.DataFrame()
 
 # ==============================================================================
-# --- Pure-Polars Indian GST ITC Reconciler ---
+# --- 1. Pure-Polars Indian GST ITC Reconciler ---
 # ==============================================================================
 def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFrame, map_pr: dict, map_2b: dict, tolerance=2.0):
     pr = df_pr.clone().with_columns([
@@ -404,9 +403,16 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     output = io.BytesIO()
     timestamp_utc = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    comp_name = company_info.get("name", "AutoReconFlow Enterprise") if company_info else "AutoReconFlow Enterprise"
-    comp_addr = company_info.get("address", "") if company_info else ""
-    comp_uid = company_info.get("uid", "") if company_info else ""
+    if company_info is None:
+        company_info = {}
+    if signoff_data is None:
+        signoff_data = {}
+    if metadata is None:
+        metadata = {}
+
+    comp_name = company_info.get("name", "AutoReconFlow Enterprise")
+    comp_addr = company_info.get("address", "")
+    comp_uid = company_info.get("uid", "")
 
     navy_header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
     section_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
@@ -456,8 +462,8 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
 
         meta_rows = [
             ("Execution Timestamp (UTC):", timestamp_utc),
-            ("Source A Ingest SHA-256:", metadata.get("source_a_fingerprint", "N/A") if metadata else "N/A"),
-            ("Source B Ingest SHA-256:", metadata.get("source_b_fingerprint", "N/A") if metadata else "N/A"),
+            ("Source A Ingest SHA-256:", metadata.get("source_a_fingerprint", "N/A")),
+            ("Source B Ingest SHA-256:", metadata.get("source_b_fingerprint", "N/A")),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
             ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Deterministic Exact -> Discrepancy -> Open Exceptions)"),
             ("Control Assertion Standard:", "PCAOB AS 2201 / SOX 404 Completeness & Accuracy Assurance")
@@ -502,9 +508,9 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
 
         sig_status = "VERIFIED / ELECTRONICALLY SIGNED" if signoff_data.get("preparer_signed") else "PENDING SIGNATURE"
         signoff_entries = [
-            ("Prepared By (Analyst):", f"{signoff_data.get('preparer_name')} [ID: {signoff_data.get('preparer_id')}]", f"Signed: {signoff_data.get('preparer_date')} ({sig_status})"),
-            ("Reviewed By (Controller / Manager):", f"{signoff_data.get('reviewer_name')} [{signoff_data.get('reviewer_title')}]", f"Reviewed: {signoff_data.get('reviewer_date')} | Verdict: {signoff_data.get('review_verdict')}"),
-            ("Audit Workpaper Reference:", signoff_data.get("wp_ref"), f"Status: {signoff_data.get('review_verdict')}"),
+            ("Prepared By (Analyst):", f"{signoff_data.get('preparer_name', '')} [ID: {signoff_data.get('preparer_id', '')}]", f"Signed: {signoff_data.get('preparer_date', '')} ({sig_status})"),
+            ("Reviewed By (Controller / Manager):", f"{signoff_data.get('reviewer_name', '')} [{signoff_data.get('reviewer_title', '')}]", f"Reviewed: {signoff_data.get('reviewer_date', '')} | Verdict: {signoff_data.get('review_verdict', '')}"),
+            ("Audit Workpaper Reference:", signoff_data.get("wp_ref", ""), f"Status: {signoff_data.get('review_verdict', '')}"),
             ("Supervisory Audit Notes:", signoff_data.get("audit_comments", "None noted"), "Document Status: Final Closed")
         ]
 
@@ -546,125 +552,235 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     return output.getvalue()
 
 # ==============================================================================
-# --- Pure Python Zero-Token Email Dispatcher ---
+# --- PDF Executive Sign-Off Certificate Engine (Immune to NameErrors) ---
 # ==============================================================================
-def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
-    if not smtp_settings.get("enabled", False):
-        return True, "Simulation mode active (SMTP disabled)."
-    
-    server_host = smtp_settings.get("host", "smtp.gmail.com").strip()
-    server_port = int(smtp_settings.get("port", 465))
-    sender_user = smtp_settings.get("user", "").strip()
-    sender_pass = smtp_settings.get("password", "").strip()
+def sanitize_pdf_text(text: str) -> str:
+    if not text:
+        return ""
+    replacements = {"—": "-", "–": "-", "’": "'", "‘": "'", "“": '"', "”": '"', "•": "*", "…": "...", "±": "+/-"}
+    for orig, rep in replacements.items():
+        text = text.replace(orig, rep)
+    return text.encode("latin-1", "replace").decode("latin-1")
 
-    if not sender_user or not sender_pass:
-        return False, "SMTP sender username or password is missing."
-    if not recipient_email or "@" not in recipient_email:
-        return False, f"Invalid recipient email address: '{recipient_email}'"
+class AuditCertificatePDF(FPDF):
+    def __init__(self, logo_path=None):
+        super().__init__()
+        self.logo_path = logo_path
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
-        msg['To'] = recipient_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(plain_text, 'plain'))
-        if html_content:
-            msg.attach(MIMEText(html_content, 'html'))
+    def header(self):
+        self.set_fill_color(27, 54, 93)
+        self.rect(0, 0, 210, 16, 'F')
+        self.set_text_color(255, 255, 255)
+        self.set_font('Helvetica', 'B', 11)
+        self.cell(0, 4, 'AUTORECONFLOW - FINANCIAL RECONCILIATION, TAX & AUDIT CERTIFICATE', 0, 1, 'C')
+        self.ln(6)
 
-        if server_port == 465:
-            with smtplib.SMTP_SSL(server_host, server_port, timeout=12) as server:
-                server.login(sender_user, sender_pass)
-                server.send_message(msg)
+    def footer(self):
+        self.set_y(-18)
+        self.set_font('Helvetica', 'I', 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 4, 'Confidential - Statutory Audit Evidence | PCAOB AS 2201 / SOX 404 / ISA-500 Standard', 0, 1, 'C')
+        self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
+
+def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance, logo_bytes=None, company_info=None, query_trail="") -> bytes:
+    if company_info is None:
+        company_info = {}
+    if signoff_data is None:
+        signoff_data = {}
+
+    logo_temp_file = None
+    if logo_bytes:
+        try:
+            logo_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            logo_temp.write(logo_bytes)
+            logo_temp.flush()
+            logo_temp.close()
+            logo_temp_file = logo_temp.name
+        except Exception:
+            logo_temp_file = None
+
+    pdf = AuditCertificatePDF(logo_path=logo_temp_file)
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    comp_name = sanitize_pdf_text(company_info.get("name", "AutoReconFlow Enterprise"))
+    comp_addr = sanitize_pdf_text(company_info.get("address", ""))
+    comp_uid = sanitize_pdf_text(company_info.get("uid", ""))
+
+    y_brand_start = pdf.get_y()
+    pdf.set_xy(10, y_brand_start)
+    pdf.set_font('Helvetica', 'B', 13)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(120, 6, comp_name, ln=True)
+
+    if comp_uid:
+        pdf.set_font('Helvetica', 'B', 8)
+        pdf.set_text_color(70, 70, 70)
+        pdf.cell(120, 4.5, f"Legal / Tax Identification: {comp_uid}", ln=True)
+
+    if comp_addr:
+        pdf.set_font('Helvetica', '', 7.5)
+        pdf.set_text_color(100, 100, 100)
+        pdf.multi_cell(125, 3.8, f"Registered Office: {comp_addr}")
+
+    if logo_temp_file and os.path.exists(logo_temp_file):
+        try:
+            pdf.image(logo_temp_file, x=150, y=y_brand_start - 2, h=16)
+        except Exception:
+            pass
+
+    pdf.set_y(max(pdf.get_y() + 3, y_brand_start + 18))
+    pdf.set_draw_color(203, 213, 225)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 14)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(0, 7, 'Financial Reconciliation & Tax Audit Certificate', ln=True, align='L')
+    pdf.set_font('Helvetica', 'I', 8.5)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 4.5, 'Compliance Certification under PCAOB AS 2201 / SOX Section 404 & ISA-500 Standards', ln=True, align='L')
+    pdf.ln(3)
+
+    pdf.set_fill_color(248, 250, 252)
+    pdf.set_draw_color(203, 213, 225)
+    pdf.rect(10, pdf.get_y(), 190, 22, 'DF')
+    pdf.set_xy(14, pdf.get_y() + 2)
+
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(45, 4.5, 'Execution Timestamp (UTC):', 0, 0)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.cell(55, 4.5, sanitize_pdf_text(signoff_data.get('preparer_date', '')), 0, 0)
+
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.cell(40, 4.5, 'Workpaper Reference:', 0, 0)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.cell(45, 4.5, sanitize_pdf_text(signoff_data.get('wp_ref', '')), 0, 1)
+
+    pdf.set_x(14)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.cell(45, 4.5, 'Variance Tolerance:', 0, 0)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.cell(55, 4.5, f'+/- {tolerance:.2f} Currency Units', 0, 0)
+
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.cell(40, 4.5, 'Supervisory Verdict:', 0, 0)
+    verdict = sanitize_pdf_text(signoff_data.get('review_verdict', 'Approved / Cleared'))
+    pdf.set_font('Helvetica', 'B', 8.5)
+    if 'Approved' in verdict:
+        pdf.set_text_color(16, 124, 65)
+    else:
+        pdf.set_text_color(180, 40, 40)
+    pdf.cell(45, 4.5, verdict, 0, 1)
+
+    pdf.ln(6)
+
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_fill_color(27, 54, 93)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.cell(110, 6.5, 'Reconciliation Assertion Category', 1, 0, 'L', fill=True)
+    pdf.cell(35, 6.5, 'Record Count', 1, 0, 'C', fill=True)
+    pdf.cell(45, 6.5, 'Audit Status', 1, 1, 'C', fill=True)
+
+    table_data = [
+        ("Tier-1 Deterministic Matches (Exact Key & Net Match)", str(matched_count), "Cleared"),
+        ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", str(fuzzy_count), "Supervisory Review" if fuzzy_count > 0 else "Cleared"),
+        ("Source A Exceptions (Subledger Missing in External Records)", str(un_a_count), "Remediation Req." if un_a_count > 0 else "Cleared"),
+        ("Source B Exceptions (External Records Missing in Subledger)", str(un_b_count), "Remediation Req." if un_b_count > 0 else "Cleared"),
+    ]
+
+    pdf.set_text_color(40, 40, 40)
+    pdf.set_font('Helvetica', '', 8)
+    for cat, count, status in table_data:
+        pdf.cell(110, 6, f"  {cat}", 1, 0, 'L')
+        pdf.cell(35, 6, count, 1, 0, 'C')
+        if status == "Cleared":
+            pdf.set_text_color(16, 124, 65)
         else:
-            with smtplib.SMTP(server_host, server_port, timeout=12) as server:
-                server.starttls()
-                server.login(sender_user, sender_pass)
-                server.send_message(msg)
-        return True, "Email successfully delivered."
-    except Exception as e:
-        return False, f"SMTP Dispatch Error: {str(e)}"
+            pdf.set_text_color(180, 40, 40)
+        pdf.cell(45, 6, status, 1, 1, 'C')
+        pdf.set_text_color(40, 40, 40)
 
-def build_html_email(title, header_desc, details_dict, action_button_url="https://www.autoreconflow.com"):
-    rows_html = "".join([
-        f"<tr><td style='padding:9px;font-weight:600;color:#1B365D;width:35%;border-bottom:1px solid #E2E8F0;'>{k}</td>"
-        f"<td style='padding:9px;color:#334155;border-bottom:1px solid #E2E8F0;'>{v}</td></tr>"
-        for k, v in details_dict.items()
-    ])
-    return f"""
-    <html>
-      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:24px;background-color:#F8FAFC;">
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #CBD5E1;border-radius:8px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
-          <tr>
-            <td bgcolor="#1B365D" style="padding:20px 28px;color:#ffffff;">
-              <h2 style="margin:0;font-size:19px;font-weight:700;">⚖️ AutoReconFlow | Financial Governance Notice</h2>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:28px;">
-              <h3 style="margin-top:0;color:#0F172A;font-size:17px;">{title}</h3>
-              <p style="color:#475569;font-size:14px;line-height:1.6;">{header_desc}</p>
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-collapse:collapse;font-size:13px;">
-                {rows_html}
-              </table>
-              <div style="text-align:center;margin-top:28px;">
-                <a href="{action_button_url}" style="background-color:#1B365D;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:5px;font-weight:600;display:inline-block;box-shadow:0 2px 6px rgba(27,54,93,0.3);">Open Workpaper & Verify Record</a>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-    """
+    pdf.ln(7)
 
-def build_vendor_gst_notice(buyer_name, buyer_gstin, supplier_name, missing_invoices_df):
-    rows = ""
-    total_blocked_tax = 0.0
-    for _, r in missing_invoices_df.iterrows():
-        inv_no = r.get('_inv_PR', r.get('Invoice_Number', 'N/A'))
-        dt = r.get('Invoice_Date', 'N/A')
-        taxable = float(r.get('Taxable_Value', 0.0))
-        tax = float(r.get('Risk_Amount_ITC', r.get('_pr_tax_total', 0.0)))
-        total_blocked_tax += tax
-        rows += f"""
-        <tr>
-            <td style='padding:8px;border:1px solid #CBD5E1;'>{inv_no}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;'>{dt}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;'>₹{taxable:,.2f}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;font-weight:bold;color:#b91c1c;'>₹{tax:,.2f}</td>
-        </tr>
-        """
-    html = f"""
-    <html>
-      <body style="font-family:'Segoe UI',sans-serif;color:#1e293b;padding:20px;background:#f8fafc;">
-        <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:24px;max-width:650px;margin:auto;">
-          <h3 style="color:#1b365d;margin-top:0;">Statutory Notice: Unfiled Invoices in GSTR-2B [Section 16(2)(aa)]</h3>
-          <p>Dear Accounts Team at <strong>{supplier_name}</strong>,</p>
-          <p>During our monthly GST reconciliation for GSTR-3B filing, the following invoices recorded in our purchase books <strong>have not been reflected in our auto-drafted GSTR-2B</strong> statement:</p>
-          <table width="100%" style="border-collapse:collapse;font-size:13px;margin:16px 0;">
-            <thead>
-              <tr style="background:#1b365d;color:#fff;">
-                <th style="padding:8px;border:1px solid #1b365d;">Invoice No</th>
-                <th style="padding:8px;border:1px solid #1b365d;">Date</th>
-                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Taxable Value</th>
-                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Blocked Tax</th>
-              </tr>
-            </thead>
-            <tbody>{rows}</tbody>
-            <tfoot>
-              <tr style="background:#f1f5f9;font-weight:bold;">
-                <td colspan="3" style="padding:8px;border:1px solid #cbd5e1;text-align:right;">Total Blocked ITC:</td>
-                <td style="padding:8px;border:1px solid #cbd5e1;text-align:right;color:#b91c1c;">₹{total_blocked_tax:,.2f}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <p style="font-size:13px;line-height:1.5;">Under <strong>Section 16(2)(aa) of the CGST Act</strong>, we cannot legally claim this Input Tax Credit until these invoices are reported in your GSTR-1/IFF. Please ensure immediate filing to prevent payment withholding or interest debit notes under Section 50.</p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;" />
-          <p style="font-size:12px;color:#64748b;margin:0;">Issued by: <strong>{buyer_name}</strong> | Identification: {buyer_gstin}</p>
-        </div>
-      </body>
-    </html>
-    """
-    return html, total_blocked_tax
+    pdf.set_font('Helvetica', 'B', 10.5)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(0, 5.5, 'Four-Eyes Internal Control Attestation', ln=True)
+    pdf.ln(2)
+
+    y_start = pdf.get_y()
+    pdf.set_fill_color(248, 250, 252)
+    pdf.rect(10, y_start, 92, 40, 'DF')
+    pdf.set_xy(14, y_start + 2.5)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(85, 4.5, 'PREPARER (First Line of Defense)', 0, 1)
+
+    pdf.set_x(14)
+    pdf.set_font('Helvetica', '', 8)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('preparer_name', ''))}", 0, 1)
+    pdf.set_x(14)
+    pdf.cell(85, 4.2, f"System / Emp ID: {sanitize_pdf_text(signoff_data.get('preparer_id', ''))}", 0, 1)
+    pdf.set_x(14)
+    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date', ''))}", 0, 1)
+    sig_text = "[VERIFIED ELECTRONIC SIGNATURE - COMPLETED]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
+    pdf.set_font('Helvetica', 'B', 7.5)
+    if signoff_data.get('preparer_signed'):
+        pdf.set_text_color(16, 124, 65)
+    else:
+        pdf.set_text_color(180, 40, 40)
+    pdf.cell(85, 5.5, sig_text, 0, 1)
+
+    pdf.set_fill_color(248, 250, 252)
+    pdf.rect(108, y_start, 92, 40, 'DF')
+    pdf.set_xy(112, y_start + 2.5)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(85, 4.5, 'REVIEWER (Supervisory Review / Oversight)', 0, 1)
+
+    pdf.set_x(112)
+    pdf.set_font('Helvetica', '', 8)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('reviewer_name', ''))}", 0, 1)
+    pdf.set_x(112)
+    pdf.cell(85, 4.2, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title', ''))}", 0, 1)
+    pdf.set_x(112)
+    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date', ''))}", 0, 1)
+    pdf.set_font('Helvetica', 'B', 7.5)
+    pdf.set_text_color(16, 124, 65)
+    pdf.cell(85, 5.5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 1)
+
+    pdf.set_y(y_start + 44)
+
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(0, 4.5, 'Supervisory Audit Notes & Resolution Trail:', ln=True)
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.set_text_color(60, 60, 60)
+    notes_clean = sanitize_pdf_text(signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
+    if query_trail:
+        notes_clean += f" | {sanitize_pdf_text(query_trail)}"
+    pdf.multi_cell(0, 4, notes_clean)
+    pdf.ln(3)
+
+    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref', '')}_{signoff_data.get('source_a_fingerprint', '')}_{signoff_data.get('source_b_fingerprint', '')}_{signoff_data.get('preparer_date', '')}_{signoff_data.get('reviewer_date', '')}_{tolerance}_{query_trail}"
+    doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
+
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font('Courier', 'B', 7.5)
+    pdf.set_text_color(70, 70, 70)
+    pdf.cell(0, 6, f" SHA-256 DIGITAL IMMUTABILITY AUDIT HASH: {doc_hash} ", 1, 1, 'C', fill=True)
+
+    result_bytes = bytes(pdf.output())
+    if logo_temp_file and os.path.exists(logo_temp_file):
+        try:
+            os.remove(logo_temp_file)
+        except Exception:
+            pass
+
+    return result_bytes
 
 # ==============================================================================
 # --- SIDEBAR CONTROLS ---
@@ -1347,62 +1463,84 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         st.session_state["saved_audit_notes"] = audit_notes
                         st.rerun()
 
-            # Ensure all dictionary keys are fully populated
-            signoff_payload = {
-                "preparer_name": st.session_state.get("saved_prep_name", "Senior Recon Analyst"),
-                "preparer_id": st.session_state.get("saved_prep_id", "FIN-ACC-8921"),
-                "preparer_date": st.session_state.get("saved_prep_date", now_str),
-                "preparer_signed": st.session_state.get("saved_prep_signed", True),
-                "reviewer_name": st.session_state.get("saved_rev_name", "Finance Controller"),
-                "reviewer_title": st.session_state.get("saved_rev_title", "VP - Financial Reporting & Controls"),
-                "reviewer_date": st.session_state.get("saved_rev_date", now_str),
-                "review_verdict": st.session_state.get("saved_rev_verdict", "Approved / Cleared"),
-                "wp_ref": st.session_state.get("saved_wp_ref", "WP-SOX-REC-2026-Q4"),
-                "audit_comments": st.session_state.get("saved_audit_notes", "Verified under standard tolerance."),
-                "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
-                "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A")
-            }
-            active_comp_info = {"name": company_name, "address": company_address, "uid": company_uid}
-            query_trail_summary = f"Item {query_state.get('item_id', '')}: Queried -> Clarified -> Cleared." if query_state.get("status") == "APPROVED" else ""
-
-            # CONTROL 5: IMMUTABLE METADATA EVIDENCE EXPORTS
+            # --- CONTROL 5: FAIL-SAFE METADATA EVIDENCE EXPORTS ---
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             
             if is_rev_approved:
-                excel_bytes = generate_consolidated_workbook(
-                    matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
-                    tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state,
-                    metadata=st.session_state.get("execution_metadata")
-                )
-                st.download_button(
-                    label="📊 Download Final SOX Audit Workpaper (.xlsx)",
-                    data=excel_bytes,
-                    file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="btn_dl_univ_excel"
-                )
+                curr_now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                safe_tolerance = res.get("tolerance", 1.0) if isinstance(res, dict) else 1.0
+                safe_metadata = st.session_state.get("execution_metadata", {})
+                
+                safe_comp_info = {
+                    "name": company_name if "company_name" in locals() and company_name else "Global Enterprise Solutions Ltd.",
+                    "address": company_address if "company_address" in locals() and company_address else "",
+                    "uid": company_uid if "company_uid" in locals() and company_uid else ""
+                }
+                
+                safe_query_obj = query_state if "query_state" in locals() else {}
+                safe_query_trail = f"Item {safe_query_obj.get('item_id', '')}: Queried -> Clarified -> Cleared." if safe_query_obj.get("status") == "APPROVED" else ""
 
-                logo_file_bytes = None
-                if uploaded_logo is not None:
-                    try:
-                        uploaded_logo.seek(0)
-                        logo_file_bytes = uploaded_logo.read()
-                    except Exception:
-                        logo_file_bytes = None
+                safe_signoff_payload = {
+                    "preparer_name": st.session_state.get("saved_prep_name", "Senior Recon Analyst"),
+                    "preparer_id": st.session_state.get("saved_prep_id", "FIN-ACC-8921"),
+                    "preparer_date": st.session_state.get("saved_prep_date", curr_now),
+                    "preparer_signed": st.session_state.get("saved_prep_signed", True),
+                    "reviewer_name": st.session_state.get("saved_rev_name", "Finance Controller"),
+                    "reviewer_title": st.session_state.get("saved_rev_title", "VP - Financial Reporting & Controls"),
+                    "reviewer_date": st.session_state.get("saved_rev_date", curr_now),
+                    "review_verdict": st.session_state.get("saved_rev_verdict", "Approved / Cleared"),
+                    "wp_ref": st.session_state.get("saved_wp_ref", "WP-SOX-REC-2026-Q4"),
+                    "audit_comments": st.session_state.get("saved_audit_notes", "Verified under standard tolerance."),
+                    "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
+                    "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A")
+                }
 
-                pdf_bytes = generate_pdf_signoff_certificate(
-                    len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
-                    logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
-                )
-                st.download_button(
-                    label="📜 Download Official Signed PDF Audit Certificate",
-                    data=pdf_bytes,
-                    file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="btn_dl_univ_pdf"
-                )
+                # Excel Workpaper Export
+                try:
+                    excel_bytes = generate_consolidated_workbook(
+                        matched_pd, fuzzy_pd, un_a_pd, un_b_pd, safe_signoff_payload, 
+                        tolerance=safe_tolerance, company_info=safe_comp_info, query_obj=safe_query_obj,
+                        metadata=safe_metadata
+                    )
+                    st.download_button(
+                        label="📊 Download Final SOX Audit Workpaper (.xlsx)",
+                        data=excel_bytes,
+                        file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="btn_dl_univ_excel"
+                    )
+                except Exception as e_xlsx:
+                    st.error(f"Excel generation note: {str(e_xlsx)}")
+
+                # PDF Attestation Certificate Export
+                try:
+                    safe_logo_bytes = None
+                    if "uploaded_logo" in locals() and uploaded_logo is not None:
+                        try:
+                            uploaded_logo.seek(0)
+                            safe_logo_bytes = uploaded_logo.read()
+                        except Exception:
+                            safe_logo_bytes = None
+
+                    pdf_bytes = generate_pdf_signoff_certificate(
+                        len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd),
+                        safe_signoff_payload,
+                        safe_tolerance,
+                        logo_bytes=safe_logo_bytes,
+                        company_info=safe_comp_info,
+                        query_trail=safe_query_trail
+                    )
+                    st.download_button(
+                        label="📜 Download Official Signed PDF Audit Certificate",
+                        data=pdf_bytes,
+                        file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="btn_dl_univ_pdf"
+                    )
+                except Exception as e_pdf:
+                    st.error(f"PDF Attestation generation note: {str(e_pdf)}")
             else:
                 st.info("🔒 Final Excel Workpaper and Signed PDF Certificate unlock automatically upon Supervisory Reviewer approval.")
 

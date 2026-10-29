@@ -271,13 +271,13 @@ df_b3 = b3.drop([c for c in clean_cols_to_drop if c in b3.columns]).to_pandas()
 df_b4 = b4.drop([c for c in clean_cols_to_drop if c in b4.columns]).to_pandas()
 return df_b1, df_b2, df_b3, df_b4
 
-==============================================================================
+# ==============================================================================
 
 
---- 2. Pure-Polars International Cross-Border VAT & RCM Engine ---
+# --- 2. Pure-Polars International Cross-Border VAT & RCM Engine ---
 
 
-==============================================================================
+# ==============================================================================
 
 def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFrame, map_books: dict, map_ext: dict, applicable_vat_rate=20.0, tolerance=1.0):
 DECIMAL_TYPE = pl.Decimal(precision=38, scale=2)
@@ -319,13 +319,13 @@ df_b3 = b3.drop([c for c in clean_cols_to_drop if c in b3.columns]).to_pandas()
 df_b4 = b4.drop([c for c in clean_cols_to_drop if c in b4.columns]).to_pandas()
 return df_b1, df_b2, df_b3, df_b4
 
-==============================================================================
+# ==============================================================================
 
 
---- Excel Workpaper Generators ---
+# --- Excel Workpaper Generators ---
 
 
-==============================================================================
+# ==============================================================================
 
 def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, client_gstin, hashes=None) -> bytes:
 output = io.BytesIO()
@@ -532,13 +532,13 @@ max_len = max(max_len, len(val_str))
 ws.column_dimensions[col_letter].width = min(max(max_len + 4, 15), 55)
 return output.getvalue()
 
-==============================================================================
+# ==============================================================================
 
 
---- Pure Python Zero-Token Email Dispatcher ---
+# --- Pure Python Zero-Token Email Dispatcher ---
 
 
-==============================================================================
+# ==============================================================================
 
 def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
 if not smtp_settings.get("enabled", False):
@@ -609,13 +609,13 @@ Issued by: {buyer_name} | Identification: {buyer_gstin}
 """
 return html, total_blocked_tax
 
-==============================================================================
+# ==============================================================================
 
 
---- PDF Executive Sign-Off Certificate ---
+# --- PDF Executive Sign-Off Certificate ---
 
 
-==============================================================================
+# ==============================================================================
 
 def sanitize_pdf_text(text: str) -> str:
 if not text:
@@ -813,13 +813,13 @@ except Exception:
 pass
 return result_bytes
 
-==============================================================================
+# ==============================================================================
 
 
---- SIDEBAR CONTROLS ---
+# --- SIDEBAR CONTROLS ---
 
 
-==============================================================================
+# ==============================================================================
 
 st.sidebar.markdown("### ⚡ AutoReconFlow")
 st.sidebar.markdown("Enterprise B2B Edition v2.3")
@@ -856,13 +856,13 @@ st.sidebar.markdown(
 st.sidebar.link_button("💳 Purchase Commercial License", "rzp.io", use_container_width=True, type="primary")
 st.sidebar.caption("Pure Polars Engine • 0 Token Costs • 100% On-Premise Data Privacy")
 
-==============================================================================
+# ==============================================================================
 
 
---- MAIN APPLICATION WORKSPACE & STATUTORY NAVIGATION TABS ---
+# --- MAIN APPLICATION WORKSPACE & STATUTORY NAVIGATION TABS ---
 
 
-==============================================================================
+# ==============================================================================
 
 st.markdown("""
 
@@ -876,13 +876,13 @@ tab_gst, tab_vat, tab_universal = st.tabs([
 "🌐 Universal Bank vs. General Ledger [SOX 404 / PCAOB AS 2201 / ISA-500]"
 ])
 
-==============================================================================
+# ==============================================================================
 
 
---- TAB 1: INDIAN GST ITC (PURCHASE REGISTER VS. GSTR-2B) ---
+# --- TAB 1: INDIAN GST ITC (PURCHASE REGISTER VS. GSTR-2B) ---
 
 
-==============================================================================
+# ==============================================================================
 
 with tab_gst:
 st.markdown("""
@@ -1012,13 +1012,13 @@ if st.button("📤 Send Statutory GST Non-Filing Notice", type="primary", key="b
 st.info("Notice logged into audit trail. Configure SMTP settings in sidebar to dispatch live email.")
 with t4: st.dataframe(b4, use_container_width=True)
 
-==============================================================================
+# ==============================================================================
 
 
---- TAB 2: INTERNATIONAL TWO-SIDED VAT & REVERSE CHARGE (RCM) ---
+# --- TAB 2: INTERNATIONAL TWO-SIDED VAT & REVERSE CHARGE (RCM) ---
 
 
-==============================================================================
+# ==============================================================================
 
 with tab_vat:
 st.markdown("""
@@ -1136,13 +1136,13 @@ with vt4:
 st.dataframe(b4_v, use_container_width=True)
 st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
 
-==============================================================================
+# ==============================================================================
 
 
---- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (100% POLARS CORE) ---
+# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (100% POLARS CORE) ---
 
 
-==============================================================================
+# ==============================================================================
 
 with tab_universal:
 st.markdown("""

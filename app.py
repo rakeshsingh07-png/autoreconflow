@@ -263,7 +263,7 @@ b3_sum = b3.select(pl.col("_pr_tax_total").sum()).item() or 0.0
 b4_sum_pr = b4.select(pl.col("_pr_tax_total").sum()).item() or 0.0
 output_pr_sum = float(b1_sum + b3_sum + b4_sum_pr)
 if abs(pr_input_sum - output_pr_sum) > 0.01:
-raise ValueError("SOX Control Exception: Data leakage or drop-off detected within processing pipeline.")
+	raise ValueError("SOX Control Exception: Data leakage or drop-off detected within processing pipeline.")
 clean_cols_to_drop = ["_key", "_gstin", "_inv", "_gstin_2B", "_inv_2B"]
 df_b1 = b1.drop([c for c in clean_cols_to_drop if c in b1.columns]).to_pandas()
 df_b2 = b2.drop([c for c in clean_cols_to_drop if c in b2.columns]).to_pandas()

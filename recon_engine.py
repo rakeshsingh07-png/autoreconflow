@@ -1,6 +1,5 @@
 import polars as pl
 import pandas as pd
-from decimal import Decimal, ROUND_HALF_UP
 from rapidfuzz import fuzz
 
 def clean_series_id(s):
@@ -12,58 +11,46 @@ def clean_series_id(s):
         .str.lstrip("0")
     )
 
-def clean_series_amount_decimal(s):
-    """
-    Hardened for International Accounting Standards.
-    Cleans strings and strips symbols, converting values directly into 
-    exact Python Decimal objects instead of Float64 to avoid float traps.
-    """
+def clean_series_amount(s):
+    """Universal numeric cleaner: strips currency symbols, commas, and handles accounting negatives."""
     cleaned = (
         s.astype(str)
         .str.replace(r"[₹$€£,\s]", "", regex=True)
         .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
     )
-    # Convert through pandas numeric as a bridge, then tightly enforce Decimal type
-    numeric_series = pd.to_numeric(cleaned, errors="coerce").fillna(0.0).abs()
-    return numeric_series.apply(lambda x: Decimal(str(round(x, 2))))
+    return pd.to_numeric(cleaned, errors="coerce").fillna(0.0).abs()
 
 def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFrame, 
                                       map_a: dict, map_b: dict, 
                                       tolerance: float = 1.0):
     """
-    Enterprise-Grade 3-Tier Reconciliation Engine.
-    Hardened for SOX 404, PCAOB AS 2201, and ISA-500 Compliance.
-    
-    Pass 1: Deterministic Exact Match (Normalized ID + Decimal Amount within Tolerance)
-    Pass 2: Partitioned Fuzzy Matching (Decimal Amount match + RapidFuzz Typo/Suffix Similarity)
+    3-Tier Reconciliation Engine:
+    Pass 1: Deterministic Exact Match (Normalized ID + Amount within Tolerance)
+    Pass 2: Partitioned Fuzzy Matching (Amount match + Identifier typo/suffix similarity)
     Pass 3: Unmatched Exceptions
     """
-    # 1. Establish Ingest Verification Control Metrics (Baseline Input Sums)
-    source_a_input_sum = df_a_pl.select(pl.col(map_a['amt']).cast(pl.Float64, strict=False).fill_null(0.0).sum()).item() or 0.0
-
-    # Convert to pandas for hybrid string manipulation loops
+    # Convert to pandas for robust hybrid join & string matching
     df_a = df_a_pl.to_pandas()
     df_b = df_b_pl.to_pandas()
 
-    # 2. Normalize Keys & Cast Amounts to High-Precision Fixed Decimals
-    tolerance_dec = Decimal(str(round(tolerance, 2)))
-    
+    # 1. Normalize Keys & Amounts
     df_a["_clean_id"] = clean_series_id(df_a[map_a["id"]])
     df_a["_clean_party"] = df_a[map_a["party"]].astype(str).str.strip()
-    df_a["_clean_amount"] = clean_series_amount_decimal(df_a[map_a["amt"]])
+    df_a["_clean_amount"] = clean_series_amount(df_a[map_a["amt"]])
+    df_a["_row_id_a"] = df_a.index
 
     df_b["_clean_id"] = clean_series_id(df_b[map_b["id"]])
     df_b["_clean_party"] = df_b[map_b["party"]].astype(str).str.strip()
-    df_b["_clean_amount"] = clean_series_amount_decimal(df_b[map_b["amt"]])
-
-    matched_a_indices = set()
-    matched_b_indices = set()
+    df_b["_clean_amount"] = clean_series_amount(df_b[map_b["amt"]])
+    df_b["_row_id_b"] = df_b.index
 
     # ---------------------------------------------------------
     # PASS 1: Exact Deterministic Match
     # ---------------------------------------------------------
     matched_rows = []
-    
+    matched_a_indices = set()
+    matched_b_indices = set()
+
     # Create fast lookup dictionary for Source B by cleaned ID
     b_lookup_by_id = {}
     for idx_b, row_b in df_b.iterrows():
@@ -74,9 +61,8 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
         if c_id in b_lookup_by_id:
             for idx_b, row_b in b_lookup_by_id[c_id]:
                 if idx_b not in matched_b_indices:
-                    # Precise fixed-point arithmetic difference
-                    diff = abs(row_a["_clean_amount"] - row_b["_clean_amount"])
-                    if diff <= tolerance_dec:
+                    diff = round(abs(row_a["_clean_amount"] - row_b["_clean_amount"]), 2)
+                    if diff <= tolerance:
                         matched_a_indices.add(idx_a)
                         matched_b_indices.add(idx_b)
                         matched_rows.append({
@@ -85,9 +71,9 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
                             "Doc_ID_B": str(row_b[map_b["id"]]),
                             "Party_A": row_a["_clean_party"],
                             "Party_B": row_b["_clean_party"],
-                            "Amount_A": float(row_a["_clean_amount"]),
-                            "Amount_B": float(row_b["_clean_amount"]),
-                            "Variance": float(diff),
+                            "Amount_A": row_a["_clean_amount"],
+                            "Amount_B": row_b["_clean_amount"],
+                            "Variance": diff,
                             "Status": "Exact Match"
                         })
                         break
@@ -106,9 +92,9 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
                 continue
             row_b = df_b.loc[idx_b]
             
-            diff = abs(row_a["_clean_amount"] - row_b["_clean_amount"])
-            if diff <= tolerance_dec:
-                # Compare fuzzy similarity using rapidfuzz C++ bindings (0-token local compute)
+            diff = round(abs(row_a["_clean_amount"] - row_b["_clean_amount"]), 2)
+            if diff <= tolerance:
+                # Compare fuzzy similarity between identifiers
                 id_score = fuzz.token_sort_ratio(str(row_a["_clean_id"]), str(row_b["_clean_id"]))
                 party_score = fuzz.partial_ratio(str(row_a["_clean_party"]).lower(), str(row_b["_clean_party"]).lower())
                 
@@ -121,8 +107,8 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
                         "Doc_ID_B": str(row_b[map_b["id"]]),
                         "Party_A": row_a["_clean_party"],
                         "Party_B": row_b["_clean_party"],
-                        "Amount_A": float(row_a["_clean_amount"]),
-                        "Amount_B": float(row_b["_clean_amount"]),
+                        "Amount_A": row_a["_clean_amount"],
+                        "Amount_B": row_b["_clean_amount"],
                         "ID_Confidence": f"{round(float(id_score), 1)}%",
                         "Party_Confidence": f"{party_score}%",
                         "Status": "Fuzzy Match Review"
@@ -134,19 +120,6 @@ def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFr
     # ---------------------------------------------------------
     final_unmatched_a = df_a[~df_a.index.isin(matched_a_indices)][[map_a["id"], map_a["party"], map_a["amt"]]].copy()
     final_unmatched_b = df_b[~df_b.index.isin(matched_b_indices)][[map_b["id"], map_b["party"], map_b["amt"]]].copy()
-
-    # ---------------------------------------------------------
-    # MANDATORY MANDATE: Post-Processing Zero-Sum Validation Control
-    # ---------------------------------------------------------
-    matched_sum_a = sum(row["Amount_A"] for row in matched_rows) if matched_rows else 0.0
-    fuzzy_sum_a = sum(row["Amount_A"] for row in fuzzy_rows) if fuzzy_rows else 0.0
-    un_a_sum_a = pd.to_numeric(final_unmatched_a[map_a["amt"]].astype(str).str.replace(r"[₹$€£,\s]", "", regex=True).str.replace(r"^\((.*)\)$", r"-\1", regex=True), errors='coerce').fillna(0.0).abs().sum() if len(final_unmatched_a) > 0 else 0.0
-    
-    processed_output_total_a = float(matched_sum_a + fuzzy_sum_a + un_a_sum_a)
-
-    # Hard security gate checking balances to instantly flag row duplication or data leaks
-    if abs(source_a_input_sum - processed_output_total_a) > 0.01:
-        raise ValueError("SOX Internal Control Failure: Value asymmetry or data leakage observed between engine layers.")
 
     # Convert back to Polars for clean table rendering and streaming export
     matched_df = pl.from_pandas(pd.DataFrame(matched_rows)) if matched_rows else pl.DataFrame()

@@ -1,130 +1,94 @@
+import re
 import polars as pl
-import pandas as pd
 from rapidfuzz import fuzz
 
-def clean_series_id(s):
-    """Universal invoice/doc cleaner: strips punctuation, spaces, and leading zeros."""
-    return (
-        s.astype(str)
-        .str.upper()
-        .str.replace(r"[^A-Z0-9]", "", regex=True)
-        .str.lstrip("0")
+def clean_alphanumeric_id(val: str) -> str:
+    """Normalizes document and transaction identifiers by stripping noise."""
+    if val is None:
+        return ""
+    s = str(val).strip().upper()
+    s = re.sub(r'[^A-Z0-9]', '', s)
+    s = re.sub(r'^(INV|BILL|DOC|TXN|SETTLE|TRANS)', '', s)
+    s = re.sub(r'^(202[4-9]|2[4-9])', '', s)
+    s = s.lstrip('0')
+    return s if s else "0"
+
+def clean_party_string(val: str) -> str:
+    """Normalizes vendor and corporate entity names for fuzzy matching."""
+    if val is None:
+        return ""
+    s = str(val).strip().upper()
+    s = re.sub(r'[^A-Z0-9\s]', ' ', s)
+    legal_stopwords = ['LTD', 'LIMITED', 'PVT', 'PRIVATE', 'INC', 'INCORPORATED', 'LLC', 'CORP', 'CORPORATION', 'CO', 'COMPANY', 'SERVICES', 'SOLUTIONS']
+    tokens = [t for t in s.split() if t not in legal_stopwords]
+    return " ".join(tokens) if tokens else s
+
+def execute_high_volume_reconciliation(
+    df_a: pl.DataFrame,
+    df_b: pl.DataFrame,
+    map_a: dict,
+    map_b: dict,
+    tolerance: float = 1.0,
+    fuzzy_threshold: float = 85.0
+):
+    """
+    High-Throughput Vectorized 3-Tier Financial Reconciliation Engine.
+    Tier 1: Deterministic Exact Match (Normalized ID + Amount within Tolerance)
+    Tier 2: Discrepancy & Threshold Variance Review (Materiality Tracking)
+    Tier 3: Open Exceptions (Source A Open vs Source B Open)
+    """
+    id_a, party_a, amt_a = map_a["id"], map_a["party"], map_a["amt"]
+    id_b, party_b, amt_b = map_b["id"], map_b["party"], map_b["amt"]
+
+    # Pre-process Source A in Polars
+    a_proc = df_a.clone().with_columns([
+        pl.col(id_a).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
+        pl.col(party_a).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
+        pl.col(amt_a).cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
+        pl.int_range(0, pl.len()).alias("_row_idx_a")
+    ])
+
+    # Pre-process Source B in Polars
+    b_proc = df_b.clone().with_columns([
+        pl.col(id_b).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
+        pl.col(party_b).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
+        pl.col(amt_b).cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
+        pl.int_range(0, pl.len()).alias("_row_idx_b")
+    ])
+
+    # --- TIER 1: DETERMINISTIC MATCHING (Vectorized Join) ---
+    joined_id = a_proc.join(b_proc, on="_match_id", how="inner", suffix="_B")
+    
+    exact_matches = joined_id.filter(
+        (pl.col("_match_amt") - pl.col("_match_amt_B")).abs() <= tolerance
     )
 
-def clean_series_amount(s):
-    """Universal numeric cleaner: strips currency symbols, commas, and handles accounting negatives."""
-    cleaned = (
-        s.astype(str)
-        .str.replace(r"[₹$€£,\s]", "", regex=True)
-        .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+    matched_a_indices = set(exact_matches["_row_idx_a"].to_list())
+    matched_b_indices = set(exact_matches["_row_idx_b"].to_list())
+
+    # --- TIER 2: DISCREPANCY & THRESHOLD CANDIDATES ---
+    value_discrepancies = joined_id.filter(
+        (pl.col("_match_amt") - pl.col("_match_amt_B")).abs() > tolerance
+    ).filter(
+        ~pl.col("_row_idx_a").is_in(list(matched_a_indices)) &
+        ~pl.col("_row_idx_b").is_in(list(matched_b_indices))
     )
-    return pd.to_numeric(cleaned, errors="coerce").fillna(0.0).abs()
 
-def execute_high_volume_reconciliation(df_a_pl: pl.DataFrame, df_b_pl: pl.DataFrame, 
-                                      map_a: dict, map_b: dict, 
-                                      tolerance: float = 1.0):
-    """
-    3-Tier Reconciliation Engine:
-    Pass 1: Deterministic Exact Match (Normalized ID + Amount within Tolerance)
-    Pass 2: Partitioned Fuzzy Matching (Amount match + Identifier typo/suffix similarity)
-    Pass 3: Unmatched Exceptions
-    """
-    # Convert to pandas for robust hybrid join & string matching
-    df_a = df_a_pl.to_pandas()
-    df_b = df_b_pl.to_pandas()
+    fuzzy_a_indices = set(value_discrepancies["_row_idx_a"].to_list())
+    fuzzy_b_indices = set(value_discrepancies["_row_idx_b"].to_list())
 
-    # 1. Normalize Keys & Amounts
-    df_a["_clean_id"] = clean_series_id(df_a[map_a["id"]])
-    df_a["_clean_party"] = df_a[map_a["party"]].astype(str).str.strip()
-    df_a["_clean_amount"] = clean_series_amount(df_a[map_a["amt"]])
-    df_a["_row_id_a"] = df_a.index
+    # --- TIER 3: OPEN EXCEPTIONS ---
+    excluded_a = list(matched_a_indices.union(fuzzy_a_indices))
+    excluded_b = list(matched_b_indices.union(fuzzy_b_indices))
 
-    df_b["_clean_id"] = clean_series_id(df_b[map_b["id"]])
-    df_b["_clean_party"] = df_b[map_b["party"]].astype(str).str.strip()
-    df_b["_clean_amount"] = clean_series_amount(df_b[map_b["amt"]])
-    df_b["_row_id_b"] = df_b.index
+    unmatched_a = a_proc.filter(~pl.col("_row_idx_a").is_in(excluded_a))
+    unmatched_b = b_proc.filter(~pl.col("_row_idx_b").is_in(excluded_b))
 
-    # ---------------------------------------------------------
-    # PASS 1: Exact Deterministic Match
-    # ---------------------------------------------------------
-    matched_rows = []
-    matched_a_indices = set()
-    matched_b_indices = set()
+    drop_helpers = ["_match_id", "_match_party", "_match_amt", "_row_idx_a", "_row_idx_b", "_match_id_B", "_match_party_B", "_match_amt_B"]
 
-    # Create fast lookup dictionary for Source B by cleaned ID
-    b_lookup_by_id = {}
-    for idx_b, row_b in df_b.iterrows():
-        b_lookup_by_id.setdefault(row_b["_clean_id"], []).append((idx_b, row_b))
+    matched_out = exact_matches.drop([c for c in drop_helpers if c in exact_matches.columns])
+    fuzzy_out = value_discrepancies.drop([c for c in drop_helpers if c in value_discrepancies.columns])
+    un_a_out = unmatched_a.drop([c for c in drop_helpers if c in unmatched_a.columns])
+    un_b_out = unmatched_b.drop([c for c in drop_helpers if c in unmatched_b.columns])
 
-    for idx_a, row_a in df_a.iterrows():
-        c_id = row_a["_clean_id"]
-        if c_id in b_lookup_by_id:
-            for idx_b, row_b in b_lookup_by_id[c_id]:
-                if idx_b not in matched_b_indices:
-                    diff = round(abs(row_a["_clean_amount"] - row_b["_clean_amount"]), 2)
-                    if diff <= tolerance:
-                        matched_a_indices.add(idx_a)
-                        matched_b_indices.add(idx_b)
-                        matched_rows.append({
-                            "Matched_ID": c_id,
-                            "Doc_ID_A": str(row_a[map_a["id"]]),
-                            "Doc_ID_B": str(row_b[map_b["id"]]),
-                            "Party_A": row_a["_clean_party"],
-                            "Party_B": row_b["_clean_party"],
-                            "Amount_A": row_a["_clean_amount"],
-                            "Amount_B": row_b["_clean_amount"],
-                            "Variance": diff,
-                            "Status": "Exact Match"
-                        })
-                        break
-
-    # ---------------------------------------------------------
-    # PASS 2: Heuristic & Fuzzy Matching on Unmatched Items
-    # ---------------------------------------------------------
-    unmatched_a_idx = [i for i in df_a.index if i not in matched_a_indices]
-    unmatched_b_idx = [i for i in df_b.index if i not in matched_b_indices]
-
-    fuzzy_rows = []
-    for idx_a in unmatched_a_idx:
-        row_a = df_a.loc[idx_a]
-        for idx_b in unmatched_b_idx:
-            if idx_b in matched_b_indices:
-                continue
-            row_b = df_b.loc[idx_b]
-            
-            diff = round(abs(row_a["_clean_amount"] - row_b["_clean_amount"]), 2)
-            if diff <= tolerance:
-                # Compare fuzzy similarity between identifiers
-                id_score = fuzz.token_sort_ratio(str(row_a["_clean_id"]), str(row_b["_clean_id"]))
-                party_score = fuzz.partial_ratio(str(row_a["_clean_party"]).lower(), str(row_b["_clean_party"]).lower())
-                
-                # Check if either ID has typos/extra tags OR parties strongly match
-                if id_score >= 70 or party_score >= 80:
-                    matched_a_indices.add(idx_a)
-                    matched_b_indices.add(idx_b)
-                    fuzzy_rows.append({
-                        "Doc_ID_A": str(row_a[map_a["id"]]),
-                        "Doc_ID_B": str(row_b[map_b["id"]]),
-                        "Party_A": row_a["_clean_party"],
-                        "Party_B": row_b["_clean_party"],
-                        "Amount_A": row_a["_clean_amount"],
-                        "Amount_B": row_b["_clean_amount"],
-                        "ID_Confidence": f"{round(float(id_score), 1)}%",
-                        "Party_Confidence": f"{party_score}%",
-                        "Status": "Fuzzy Match Review"
-                    })
-                    break
-
-    # ---------------------------------------------------------
-    # PASS 3: Remaining Exceptions
-    # ---------------------------------------------------------
-    final_unmatched_a = df_a[~df_a.index.isin(matched_a_indices)][[map_a["id"], map_a["party"], map_a["amt"]]].copy()
-    final_unmatched_b = df_b[~df_b.index.isin(matched_b_indices)][[map_b["id"], map_b["party"], map_b["amt"]]].copy()
-
-    # Convert back to Polars for clean table rendering and streaming export
-    matched_df = pl.from_pandas(pd.DataFrame(matched_rows)) if matched_rows else pl.DataFrame()
-    fuzzy_df = pl.from_pandas(pd.DataFrame(fuzzy_rows)) if fuzzy_rows else pl.DataFrame()
-    unmatched_a_df = pl.from_pandas(final_unmatched_a) if len(final_unmatched_a) > 0 else pl.DataFrame()
-    unmatched_b_df = pl.from_pandas(final_unmatched_b) if len(final_unmatched_b) > 0 else pl.DataFrame()
-
-    return matched_df, fuzzy_df, unmatched_a_df, unmatched_b_df
+    return matched_out, fuzzy_out, un_a_out, un_b_out

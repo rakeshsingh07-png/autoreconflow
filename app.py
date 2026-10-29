@@ -552,7 +552,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     return output.getvalue()
 
 # ==============================================================================
-# --- PDF Executive Sign-Off Certificate Engine (Immune to NameErrors) ---
+# --- PDF Executive Sign-Off Certificate Engine (Absolute Alignment Fix) ---
 # ==============================================================================
 def sanitize_pdf_text(text: str) -> str:
     if not text:
@@ -704,55 +704,75 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.ln(7)
 
+    # --- Four-Eyes Internal Control Attestation (Clean Dual-Box Layout) ---
     pdf.set_font('Helvetica', 'B', 10.5)
     pdf.set_text_color(27, 54, 93)
-    pdf.cell(0, 5.5, 'Four-Eyes Internal Control Attestation', ln=True)
+    pdf.cell(0, 6, 'Four-Eyes Internal Control Attestation', ln=True)
     pdf.ln(2)
 
-    y_start = pdf.get_y()
+    box_y = pdf.get_y()
+    box_w = 92
+    box_h = 36
+
+    # 1. PREPARER BOX (Left: X = 10 to 102)
     pdf.set_fill_color(248, 250, 252)
-    pdf.rect(10, y_start, 92, 40, 'DF')
-    pdf.set_xy(14, y_start + 2.5)
+    pdf.set_draw_color(203, 213, 225)
+    pdf.rect(10, box_y, box_w, box_h, 'DF')
+
+    pdf.set_xy(14, box_y + 3)
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.set_text_color(27, 54, 93)
-    pdf.cell(85, 4.5, 'PREPARER (First Line of Defense)', 0, 1)
+    pdf.cell(84, 4.5, 'PREPARER (First Line of Defense)', 0, 0)
 
-    pdf.set_x(14)
+    pdf.set_xy(14, box_y + 8.5)
     pdf.set_font('Helvetica', '', 8)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('preparer_name', ''))}", 0, 1)
-    pdf.set_x(14)
-    pdf.cell(85, 4.2, f"System / Emp ID: {sanitize_pdf_text(signoff_data.get('preparer_id', ''))}", 0, 1)
-    pdf.set_x(14)
-    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date', ''))}", 0, 1)
-    sig_text = "[VERIFIED ELECTRONIC SIGNATURE - COMPLETED]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
+    pdf.cell(84, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('preparer_name', ''))}", 0, 0)
+
+    pdf.set_xy(14, box_y + 13.5)
+    pdf.cell(84, 4.2, f"System / Emp ID: {sanitize_pdf_text(signoff_data.get('preparer_id', ''))}", 0, 0)
+
+    pdf.set_xy(14, box_y + 18.5)
+    pdf.cell(84, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date', ''))}", 0, 0)
+
+    pdf.set_xy(14, box_y + 26)
     pdf.set_font('Helvetica', 'B', 7.5)
     if signoff_data.get('preparer_signed'):
         pdf.set_text_color(16, 124, 65)
+        pdf.cell(84, 5, '[VERIFIED ELECTRONIC SIGNATURE - COMPLETED]', 0, 0)
     else:
         pdf.set_text_color(180, 40, 40)
-    pdf.cell(85, 5.5, sig_text, 0, 1)
+        pdf.cell(84, 5, '[UNSIGNED]', 0, 0)
 
-    pdf.set_fill_color(248, 250, 252)
-    pdf.rect(108, y_start, 92, 40, 'DF')
-    pdf.set_xy(112, y_start + 2.5)
+    # 2. REVIEWER BOX (Right: X = 108 to 200)
+    pdf.rect(108, box_y, box_w, box_h, 'DF')
+
+    pdf.set_xy(112, box_y + 3)
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.set_text_color(27, 54, 93)
-    pdf.cell(85, 4.5, 'REVIEWER (Supervisory Review / Oversight)', 0, 1)
+    pdf.cell(84, 4.5, 'REVIEWER (Supervisory Review / Oversight)', 0, 0)
 
-    pdf.set_x(112)
+    pdf.set_xy(112, box_y + 8.5)
     pdf.set_font('Helvetica', '', 8)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('reviewer_name', ''))}", 0, 1)
-    pdf.set_x(112)
-    pdf.cell(85, 4.2, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title', ''))}", 0, 1)
-    pdf.set_x(112)
-    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date', ''))}", 0, 1)
-    pdf.set_font('Helvetica', 'B', 7.5)
-    pdf.set_text_color(16, 124, 65)
-    pdf.cell(85, 5.5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 1)
+    pdf.cell(84, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('reviewer_name', ''))}", 0, 0)
 
-    pdf.set_y(y_start + 44)
+    pdf.set_xy(112, box_y + 13.5)
+    pdf.cell(84, 4.2, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title', ''))}", 0, 0)
+
+    pdf.set_xy(112, box_y + 18.5)
+    pdf.cell(84, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date', ''))}", 0, 0)
+
+    pdf.set_xy(112, box_y + 26)
+    pdf.set_font('Helvetica', 'B', 7.5)
+    if 'Approved' in verdict:
+        pdf.set_text_color(16, 124, 65)
+    else:
+        pdf.set_text_color(180, 40, 40)
+    pdf.cell(84, 5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 0)
+
+    # 3. ADVANCE Y BEYOND BOTH BOXES
+    pdf.set_xy(10, box_y + box_h + 5)
 
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.set_text_color(27, 54, 93)
@@ -781,6 +801,127 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
             pass
 
     return result_bytes
+
+# ==============================================================================
+# --- Pure Python Zero-Token Email Dispatcher ---
+# ==============================================================================
+def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
+    if not smtp_settings.get("enabled", False):
+        return True, "Simulation mode active (SMTP disabled)."
+    
+    server_host = smtp_settings.get("host", "smtp.gmail.com").strip()
+    server_port = int(smtp_settings.get("port", 465))
+    sender_user = smtp_settings.get("user", "").strip()
+    sender_pass = smtp_settings.get("password", "").strip()
+
+    if not sender_user or not sender_pass:
+        return False, "SMTP sender username or password is missing."
+    if not recipient_email or "@" not in recipient_email:
+        return False, f"Invalid recipient email address: '{recipient_email}'"
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
+        msg['To'] = recipient_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(plain_text, 'plain'))
+        if html_content:
+            msg.attach(MIMEText(html_content, 'html'))
+
+        if server_port == 465:
+            with smtplib.SMTP_SSL(server_host, server_port, timeout=12) as server:
+                server.login(sender_user, sender_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(server_host, server_port, timeout=12) as server:
+                server.starttls()
+                server.login(sender_user, sender_pass)
+                server.send_message(msg)
+        return True, "Email successfully delivered."
+    except Exception as e:
+        return False, f"SMTP Dispatch Error: {str(e)}"
+
+def build_html_email(title, header_desc, details_dict, action_button_url="https://www.autoreconflow.com"):
+    rows_html = "".join([
+        f"<tr><td style='padding:9px;font-weight:600;color:#1B365D;width:35%;border-bottom:1px solid #E2E8F0;'>{k}</td>"
+        f"<td style='padding:9px;color:#334155;border-bottom:1px solid #E2E8F0;'>{v}</td></tr>"
+        for k, v in details_dict.items()
+    ])
+    return f"""
+    <html>
+      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:24px;background-color:#F8FAFC;">
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #CBD5E1;border-radius:8px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
+          <tr>
+            <td bgcolor="#1B365D" style="padding:20px 28px;color:#ffffff;">
+              <h2 style="margin:0;font-size:19px;font-weight:700;">⚖️ AutoReconFlow | Financial Governance Notice</h2>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <h3 style="margin-top:0;color:#0F172A;font-size:17px;">{title}</h3>
+              <p style="color:#475569;font-size:14px;line-height:1.6;">{header_desc}</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-collapse:collapse;font-size:13px;">
+                {rows_html}
+              </table>
+              <div style="text-align:center;margin-top:28px;">
+                <a href="{action_button_url}" style="background-color:#1B365D;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:5px;font-weight:600;display:inline-block;box-shadow:0 2px 6px rgba(27,54,93,0.3);">Open Workpaper & Verify Record</a>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+def build_vendor_gst_notice(buyer_name, buyer_gstin, supplier_name, missing_invoices_df):
+    rows = ""
+    total_blocked_tax = 0.0
+    for _, r in missing_invoices_df.iterrows():
+        inv_no = r.get('_inv_PR', r.get('Invoice_Number', 'N/A'))
+        dt = r.get('Invoice_Date', 'N/A')
+        taxable = float(r.get('Taxable_Value', 0.0))
+        tax = float(r.get('Risk_Amount_ITC', r.get('_pr_tax_total', 0.0)))
+        total_blocked_tax += tax
+        rows += f"""
+        <tr>
+            <td style='padding:8px;border:1px solid #CBD5E1;'>{inv_no}</td>
+            <td style='padding:8px;border:1px solid #CBD5E1;'>{dt}</td>
+            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;'>₹{taxable:,.2f}</td>
+            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;font-weight:bold;color:#b91c1c;'>₹{tax:,.2f}</td>
+        </tr>
+        """
+    html = f"""
+    <html>
+      <body style="font-family:'Segoe UI',sans-serif;color:#1e293b;padding:20px;background:#f8fafc;">
+        <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:24px;max-width:650px;margin:auto;">
+          <h3 style="color:#1b365d;margin-top:0;">Statutory Notice: Unfiled Invoices in GSTR-2B [Section 16(2)(aa)]</h3>
+          <p>Dear Accounts Team at <strong>{supplier_name}</strong>,</p>
+          <p>During our monthly GST reconciliation for GSTR-3B filing, the following invoices recorded in our purchase books <strong>have not been reflected in our auto-drafted GSTR-2B</strong> statement:</p>
+          <table width="100%" style="border-collapse:collapse;font-size:13px;margin:16px 0;">
+            <thead>
+              <tr style="background:#1b365d;color:#fff;">
+                <th style="padding:8px;border:1px solid #1b365d;">Invoice No</th>
+                <th style="padding:8px;border:1px solid #1b365d;">Date</th>
+                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Taxable Value</th>
+                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Blocked Tax</th>
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+            <tfoot>
+              <tr style="background:#f1f5f9;font-weight:bold;">
+                <td colspan="3" style="padding:8px;border:1px solid #cbd5e1;text-align:right;">Total Blocked ITC:</td>
+                <td style="padding:8px;border:1px solid #cbd5e1;text-align:right;color:#b91c1c;">₹{total_blocked_tax:,.2f}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p style="font-size:13px;line-height:1.5;">Under <strong>Section 16(2)(aa) of the CGST Act</strong>, we cannot legally claim this Input Tax Credit until these invoices are reported in your GSTR-1/IFF. Please ensure immediate filing to prevent payment withholding or interest debit notes under Section 50.</p>
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;" />
+          <p style="font-size:12px;color:#64748b;margin:0;">Issued by: <strong>{buyer_name}</strong> | Identification: {buyer_gstin}</p>
+        </div>
+      </body>
+    </html>
+    """
+    return html, total_blocked_tax
 
 # ==============================================================================
 # --- SIDEBAR CONTROLS ---
@@ -1513,7 +1654,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 except Exception as e_xlsx:
                     st.error(f"Excel generation note: {str(e_xlsx)}")
 
-                # PDF Attestation Certificate Export
+                # PDF Attestation Certificate Export (Clean Alignment)
                 try:
                     safe_logo_bytes = None
                     if "uploaded_logo" in locals() and uploaded_logo is not None:

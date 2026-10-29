@@ -357,7 +357,7 @@ def build_vendor_gst_notice(buyer_name, buyer_gstin, supplier_name, missing_invo
     return html, total_blocked_tax
 
 # ==============================================================================
-# --- PDF Executive Sign-Off Certificate Generator ---
+# --- PDF Executive Sign-Off Certificate Generator (Clean If/Else - No None) ---
 # ==============================================================================
 def sanitize_pdf_text(text: str) -> str:
     if not text:
@@ -468,7 +468,10 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.cell(40, 4.5, 'Supervisory Verdict:', 0, 0)
     verdict = sanitize_pdf_text(signoff_data.get('review_verdict', 'Approved / Cleared'))
     pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(16, 124, 65) if 'Approved' in verdict else pdf.set_text_color(180, 40, 40)
+    if 'Approved' in verdict:
+        pdf.set_text_color(16, 124, 65)
+    else:
+        pdf.set_text_color(180, 40, 40)
     pdf.cell(45, 4.5, verdict, 0, 1)
 
     pdf.ln(6)
@@ -492,7 +495,10 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     for cat, count, status in table_data:
         pdf.cell(110, 6, f"  {cat}", 1, 0, 'L')
         pdf.cell(35, 6, count, 1, 0, 'C')
-        pdf.set_text_color(16, 124, 65) if status == "Cleared" else pdf.set_text_color(180, 40, 40)
+        if status == "Cleared":
+            pdf.set_text_color(16, 124, 65)
+        else:
+            pdf.set_text_color(180, 40, 40)
         pdf.cell(45, 6, status, 1, 1, 'C')
         pdf.set_text_color(40, 40, 40)
 
@@ -521,7 +527,10 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date'))}", 0, 1)
     sig_text = "[VERIFIED ELECTRONIC SIGNATURE - COMPLETED]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
     pdf.set_font('Helvetica', 'B', 7.5)
-    pdf.set_text_color(16, 124, 65) if signoff_data.get('preparer_signed') else pdf.set_text_color(180, 40, 40)
+    if signoff_data.get('preparer_signed'):
+        pdf.set_text_color(16, 124, 65)
+    else:
+        pdf.set_text_color(180, 40, 40)
     pdf.cell(85, 5.5, sig_text, 0, 1)
 
     pdf.set_fill_color(248, 250, 252)
@@ -539,7 +548,6 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.cell(85, 4.2, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title'))}", 0, 1)
     pdf.set_x(112)
     pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date'))}", 0, 1)
-    pdf.set_x(112)
     pdf.set_font('Helvetica', 'B', 7.5)
     pdf.set_text_color(16, 124, 65)
     pdf.cell(85, 5.5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 1)
@@ -1651,7 +1659,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             active_comp_info = {"name": company_name, "address": company_address, "uid": company_uid}
             query_trail_summary = f"Item {query_state['item_id']}: Queried -> Clarified -> Cleared." if query_state.get("status") == "APPROVED" else ""
 
-            # --- OFFICIAL DELIVERABLES HUB ---
+            # --- OFFICIAL DELIVERABLES HUB (100% CLEAN DIRECT DOWNLOADS) ---
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             
             if is_rev_approved:
@@ -1659,7 +1667,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
                     tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state
                 )
-                _ = st.download_button(
+                st.download_button(
                     label="📊 Download Final SOX Audit Workpaper (.xlsx)",
                     data=excel_bytes,
                     file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
@@ -1673,7 +1681,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
                     logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
                 )
-                _ = st.download_button(
+                st.download_button(
                     label="📜 Download Official Signed PDF Audit Certificate",
                     data=pdf_bytes,
                     file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
@@ -1693,7 +1701,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             with tab1:
                 if len(matched_pd) > 0:
                     st.dataframe(matched_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Deterministic Matches (CSV)",
                         data=res["matched_pl"].write_csv(),
                         file_name="deterministic_matches.csv",
@@ -1707,7 +1715,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(fuzzy_pd) > 0:
                     st.markdown("**Discrepancies Requiring Review (Levenshtein / Jaro-Winkler Variance)**")
                     st.dataframe(fuzzy_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Discrepancy Candidates (CSV)",
                         data=res["fuzzy_pl"].write_csv(),
                         file_name="fuzzy_review_candidates.csv",
@@ -1721,7 +1729,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_a_pd) > 0:
                     st.markdown("**Source A Entries Missing in Source B (Unmatched Subledger Items)**")
                     st.dataframe(un_a_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Source A Exceptions (CSV)",
                         data=res["un_a_pl"].write_csv(),
                         file_name="unmatched_ledger_exceptions.csv",
@@ -1735,7 +1743,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_b_pd) > 0:
                     st.markdown("**Source B Entries Missing in Source A (Timing & External Exceptions)**")
                     st.dataframe(un_b_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Source B Exceptions (CSV)",
                         data=res["un_b_pl"].write_csv(),
                         file_name="unmatched_external_exceptions.csv",

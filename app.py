@@ -1298,7 +1298,6 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
             k3.metric("Bucket 3: Missing in Statement", f"{len(b3_v)} lines", delta="Accrued in Books", delta_color="inverse")
             k4.metric("Bucket 4: Rate & Tax Mismatches", f"{len(b4_v)} lines", delta="Foreign VAT / Discrepancy", delta_color="inverse")
 
-            # Excel Export for 4-bucket VAT Workpaper
             output_vat = io.BytesIO()
             with pd.ExcelWriter(output_vat, engine="openpyxl") as vat_writer:
                 b1_v.to_excel(vat_writer, sheet_name="Bucket 1 - Cleared RCM", index=False)
@@ -1330,7 +1329,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
                 st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
 
 # ==============================================================================
-# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (COMPLETE RESTORATION) ---
+# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (CLEAN NO-NONE IMPLEMENTATION) ---
 # ==============================================================================
 with tab_universal:
     st.markdown("""
@@ -1402,7 +1401,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
     if df_a is not None and df_b is not None:
         cols_a = list(df_a.columns)
         cols_b = list(df_b.columns)
-        st.success(f"Loaded Source A ({len(df_a):,} rows, {len(cols_a)} cols) and Source B ({len(df_b):,} rows, {len(cols_b)} cols)")
+        st.success(f"Loaded Source A ({len(df_a):,} rows) and Source B ({len(df_b):,} rows)")
 
         with st.expander("🛠️ Configure Column Mappings", expanded=True):
             m1, m2 = st.columns(2)
@@ -1655,46 +1654,39 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             active_comp_info = {"name": company_name, "address": company_address, "uid": company_uid}
             query_trail_summary = f"Item {query_state['item_id']}: Queried -> Clarified -> Cleared." if query_state.get("status") == "APPROVED" else ""
 
-            # --- OFFICIAL DELIVERABLES HUB ---
+            # --- OFFICIAL DELIVERABLES HUB (CLEAN RENDERING - ZERO GHOST TEXT) ---
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
-            exp_col1, exp_col2 = st.columns(2)
+            
+            if is_rev_approved:
+                excel_bytes = generate_consolidated_workbook(
+                    matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
+                    tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state
+                )
+                st.download_button(
+                    label="📊 Download Final SOX Audit Workpaper (.xlsx)",
+                    data=excel_bytes,
+                    file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_dl_univ_excel"
+                )
 
-            with exp_col1:
-                if is_rev_approved:
-                    excel_bytes = generate_consolidated_workbook(
-                        matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
-                        tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state
-                    )
-                    st.download_button(
-                        label="📊 Download Final SOX Audit Workpaper (.xlsx)",
-                        data=excel_bytes,
-                        file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="btn_dl_univ_excel"
-                    )
-                else:
-                    st.info("🔒 Excel Workpaper unlocks automatically upon complete Reviewer approval.")
+                logo_file_bytes = uploaded_logo.getvalue() if uploaded_logo is not None else None
+                pdf_bytes = generate_pdf_signoff_certificate(
+                    len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
+                    logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
+                )
+                st.download_button(
+                    label="📜 Download Official Signed PDF Audit Certificate",
+                    data=pdf_bytes,
+                    file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_dl_univ_pdf"
+                )
+            else:
+                st.info("🔒 Final Excel Workpaper and Signed PDF Certificate unlock automatically upon Supervisory Reviewer approval.")
 
-            with exp_col2:
-                if is_rev_approved:
-                    logo_file_bytes = uploaded_logo.getvalue() if uploaded_logo is not None else None
-                    pdf_bytes = generate_pdf_signoff_certificate(
-                        len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
-                        logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
-                    )
-                    st.download_button(
-                        label="📜 Download Official Signed PDF Audit Certificate",
-                        data=pdf_bytes,
-                        file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="btn_dl_univ_pdf"
-                    )
-                else:
-                    st.info("🔒 Signed PDF Certificate unlocks automatically once the Reviewer approves.")
-
-            # Four Granular Audit Result Tabs
             tab1, tab2, tab3, tab4 = st.tabs([
                 "✅ Tier-1 Deterministic Matches",
                 "🔍 Tier-2 Discrepancy & Threshold Review",

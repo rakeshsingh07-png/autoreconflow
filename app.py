@@ -143,19 +143,21 @@ def verify_license_key(email: str, license_key: str):
     return False, None
 
 # ==============================================================================
-# --- Intelligent Normalization Utilities ---
+# --- Ingestion, Cryptographic Fingerprinting & Sanitization ---
 # ==============================================================================
+def compute_stream_sha256(raw_bytes: bytes) -> str:
+    """Computes an immutable cryptographic SHA-256 fingerprint for ingested files."""
+    if not raw_bytes:
+        return "N/A"
+    return hashlib.sha256(raw_bytes).hexdigest().upper()
+
 def normalize_invoice_no(val):
     if val is None:
         return ""
     s = str(val).strip().upper()
-    # Strip non-alphanumeric characters
     s = re.sub(r'[^A-Z0-9]', '', s)
-    # Strip common invoice prefixes
     s = re.sub(r'^(INV|BILL|DOC|TAX|TAXINV)', '', s)
-    # Strip common financial year prefixes (e.g., 2026, 26, 2025, 25)
     s = re.sub(r'^(202[4-9]|2[4-9])', '', s)
-    # Strip leading zeros
     s = s.lstrip('0')
     return s if s else "0"
 
@@ -173,19 +175,16 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
         elif filename.endswith((".xlsx", ".xls")):
             return pl.read_excel(uploaded_file)
     except Exception:
-        # Fallback via pandas if required
         uploaded_file.seek(0)
         df_pd = pd.read_csv(uploaded_file) if filename.endswith(".csv") else pd.read_excel(uploaded_file)
         return pl.from_pandas(df_pd)
     return pl.DataFrame()
 
 # ==============================================================================
-# --- 1. Pure-Polars Indian GST ITC Reconciler ---
+# --- Pure-Polars Indian GST ITC Reconciler ---
 # ==============================================================================
 def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFrame, map_pr: dict, map_2b: dict, tolerance=2.0):
-    # Prepare Purchase Register in Polars
-    pr = df_pr.clone()
-    pr = pr.with_columns([
+    pr = df_pr.clone().with_columns([
         pl.col(map_pr['gstin']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_gstin"),
         pl.col(map_pr['inv']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
         pl.col(map_pr['taxable']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_taxable"),
@@ -198,9 +197,7 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         (pl.col("_pr_igst") + pl.col("_pr_cgst") + pl.col("_pr_sgst")).alias("_pr_tax_total")
     ])
 
-    # Prepare GSTR-2B in Polars
-    g2b = df_2b.clone()
-    g2b = g2b.with_columns([
+    g2b = df_2b.clone().with_columns([
         pl.col(map_2b['gstin']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_gstin"),
         pl.col(map_2b['inv']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
         pl.col(map_2b['taxable']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_taxable"),
@@ -213,10 +210,8 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         (pl.col("_2b_igst") + pl.col("_2b_cgst") + pl.col("_2b_sgst")).alias("_2b_tax_total")
     ])
 
-    # Vectorized Polars Full Outer Join
     merged = pr.join(g2b, on="_key", how="full", suffix="_2B")
 
-    # Bucket 1: Direct Matches
     b1 = merged.filter(
         pl.col("_pr_tax_total").is_not_null() & 
         pl.col("_2b_tax_total").is_not_null() &
@@ -227,7 +222,6 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         pl.col("_2b_tax_total").alias("Claimable_ITC_Total")
     ])
 
-    # Bucket 4: Value & Tax Head Discrepancies
     b4 = merged.filter(
         pl.col("_pr_tax_total").is_not_null() & 
         pl.col("_2b_tax_total").is_not_null() &
@@ -240,7 +234,6 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         (pl.col("_pr_tax_total") - pl.col("_2b_tax_total")).alias("Tax_Variance")
     ])
 
-    # Bucket 3: Missing in 2B (Blocked ITC - In Books, Unfiled)
     b3 = merged.filter(
         pl.col("_pr_tax_total").is_not_null() & pl.col("_2b_tax_total").is_null()
     ).with_columns([
@@ -248,7 +241,6 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         pl.col("_pr_tax_total").alias("Risk_Amount_ITC")
     ])
 
-    # Bucket 2: Missing in Books (Unrecorded - In 2B, Not in Books)
     b2 = merged.filter(
         pl.col("_pr_tax_total").is_null() & pl.col("_2b_tax_total").is_not_null()
     ).with_columns([
@@ -256,21 +248,19 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
         pl.col("_2b_tax_total").alias("Available_Unclaimed_ITC")
     ])
 
-    # Convert to clean pandas DataFrames for display and openpyxl formatting
-    clean_cols_to_drop = ["_key", "_gstin", "_inv", "_gstin_2B", "_inv_2B"]
-    df_b1 = b1.drop([c for c in clean_cols_to_drop if c in b1.columns]).to_pandas()
-    df_b2 = b2.drop([c for c in clean_cols_to_drop if c in b2.columns]).to_pandas()
-    df_b3 = b3.drop([c for c in clean_cols_to_drop if c in b3.columns]).to_pandas()
-    df_b4 = b4.drop([c for c in clean_cols_to_drop if c in b4.columns]).to_pandas()
+    drop_cols = ["_key", "_gstin", "_inv", "_gstin_2B", "_inv_2B"]
+    df_b1 = b1.drop([c for c in drop_cols if c in b1.columns]).to_pandas()
+    df_b2 = b2.drop([c for c in drop_cols if c in b2.columns]).to_pandas()
+    df_b3 = b3.drop([c for c in drop_cols if c in b3.columns]).to_pandas()
+    df_b4 = b4.drop([c for c in drop_cols if c in b4.columns]).to_pandas()
 
     return df_b1, df_b2, df_b3, df_b4
 
 # ==============================================================================
-# --- 2. Pure-Polars International Cross-Border VAT & RCM Engine ---
+# --- Pure-Polars International Cross-Border VAT & RCM Engine ---
 # ==============================================================================
 def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFrame, map_books: dict, map_ext: dict, applicable_vat_rate=20.0, tolerance=1.0):
-    bks = df_books.clone()
-    bks = bks.with_columns([
+    bks = df_books.clone().with_columns([
         pl.col(map_books['vat_id']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_tax_id"),
         pl.col(map_books['invoice']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
         pl.col(map_books['net_amt']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_bks_net"),
@@ -278,8 +268,7 @@ def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFram
     ])
     bks = bks.with_columns((pl.col("_tax_id") + pl.lit("_") + pl.col("_inv")).alias("_key"))
 
-    ext = df_ext.clone()
-    ext = ext.with_columns([
+    ext = df_ext.clone().with_columns([
         pl.col(map_ext['vat_id']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_tax_id"),
         pl.col(map_ext['invoice']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
         pl.col(map_ext['net_amt']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_ext_net"),
@@ -288,10 +277,8 @@ def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFram
     ext = ext.with_columns((pl.col("_tax_id") + pl.lit("_") + pl.col("_inv")).alias("_key"))
 
     merged = bks.join(ext, on="_key", how="full", suffix="_EXT")
-
     expected_rcm_expr = (pl.col("_bks_net") * (applicable_vat_rate / 100.0)).round(2)
 
-    # Bucket 1: Cleared RCM
     b1 = merged.filter(
         pl.col("_bks_net").is_not_null() & 
         pl.col("_ext_net").is_not_null() &
@@ -302,7 +289,6 @@ def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFram
         expected_rcm_expr.alias("Deemed_VAT_Total")
     ])
 
-    # Bucket 4: Rate & Tax Discrepancies
     b4 = merged.filter(
         pl.col("_bks_net").is_not_null() & 
         pl.col("_ext_net").is_not_null() &
@@ -315,32 +301,29 @@ def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFram
         pl.col("_ext_charged_tax").alias("Correction_Required")
     ])
 
-    # Bucket 3: Missing in External Statement
-    b3 = merged.filter(
-        pl.col("_bks_net").is_not_null() & pl.col("_ext_net").is_null()
-    ).with_columns(pl.lit("In Books but missing in External Statement").alias("Audit_Finding"))
+    b3 = merged.filter(pl.col("_bks_net").is_not_null() & pl.col("_ext_net").is_null()).with_columns(
+        pl.lit("In Books but missing in External Statement").alias("Audit_Finding")
+    )
+    b2 = merged.filter(pl.col("_bks_net").is_null() & pl.col("_ext_net").is_not_null()).with_columns(
+        pl.lit("Billed by Supplier, missing in Books").alias("Audit_Finding")
+    )
 
-    # Bucket 2: Missing in Books (Unrecorded)
-    b2 = merged.filter(
-        pl.col("_bks_net").is_null() & pl.col("_ext_net").is_not_null()
-    ).with_columns(pl.lit("Billed by Supplier, missing in Books").alias("Audit_Finding"))
-
-    clean_cols_to_drop = ["_key", "_tax_id", "_inv", "_tax_id_EXT", "_inv_EXT"]
-    df_b1 = b1.drop([c for c in clean_cols_to_drop if c in b1.columns]).to_pandas()
-    df_b2 = b2.drop([c for c in clean_cols_to_drop if c in b2.columns]).to_pandas()
-    df_b3 = b3.drop([c for c in clean_cols_to_drop if c in b3.columns]).to_pandas()
-    df_b4 = b4.drop([c for c in clean_cols_to_drop if c in b4.columns]).to_pandas()
+    drop_cols = ["_key", "_tax_id", "_inv", "_tax_id_EXT", "_inv_EXT"]
+    df_b1 = b1.drop([c for c in drop_cols if c in b1.columns]).to_pandas()
+    df_b2 = b2.drop([c for c in drop_cols if c in b2.columns]).to_pandas()
+    df_b3 = b3.drop([c for c in drop_cols if c in b3.columns]).to_pandas()
+    df_b4 = b4.drop([c for c in drop_cols if c in b4.columns]).to_pandas()
 
     return df_b1, df_b2, df_b3, df_b4
 
 # ==============================================================================
-# --- Excel Workpaper Generators ---
+# --- Excel Workpaper Generators with Full Audit Evidence Stamping ---
 # ==============================================================================
-def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, client_gstin) -> bytes:
+def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, client_gstin, metadata=None) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         workbook = writer.book
-        ws_sum = workbook.create_sheet(title="ITC Audit Summary", index=0)
+        ws_sum = workbook.create_sheet(title="Audit & Control Summary", index=0)
         ws_sum.views.sheetView[0].showGridLines = True
         
         navy_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
@@ -350,15 +333,24 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
         
         ws_sum["A1"] = f"{company_name} — GSTR-2B vs Purchase Register Audit Workpaper"
         ws_sum["A1"].font = Font(name="Calibri", size=14, bold=True, color="1B365D")
-        ws_sum["A2"] = f"Statutory Compliance: CGST Section 16(2)(aa) & Rule 36(4) | Identification: {client_gstin} | Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        ws_sum["A2"] = f"Statutory Compliance: CGST Section 16(2)(aa) & Rule 36(4) | Legal ID: {client_gstin} | Generated: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
         ws_sum["A2"].font = Font(name="Calibri", size=9.5, italic=True, color="595959")
         
+        if metadata:
+            ws_sum["A4"] = "Source A Ingest SHA-256:"
+            ws_sum["B4"] = metadata.get("source_a_fingerprint", "N/A")
+            ws_sum["A5"] = "Source B Ingest SHA-256:"
+            ws_sum["B5"] = metadata.get("source_b_fingerprint", "N/A")
+            ws_sum["A6"] = "Execution Metadata ID:"
+            ws_sum["B6"] = metadata.get("execution_id", "N/A")
+            ws_sum.cell(row=4, column=1).font = bold_f
+            ws_sum.cell(row=5, column=1).font = bold_f
+            ws_sum.cell(row=6, column=1).font = bold_f
+
         headers = ["GSTR-3B Statutory Bucket", "Invoice Count", "Total Tax / ITC Impact (₹)", "Statutory Recommendation & Action"]
-        _ = ws_sum.append([])
-        _ = ws_sum.append(headers)
-        
-        for c in range(1, 5):
-            cell = ws_sum.cell(row=4, column=c)
+        start_row = 8
+        for c, h in enumerate(headers, 1):
+            cell = ws_sum.cell(row=start_row, column=c, value=h)
             cell.fill = navy_header
             cell.font = white_bold
             
@@ -374,15 +366,12 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             ("Bucket 4: Value & Tax Head Discrepancies", len(df_b4), b4_tax, "Rectify voucher tax heads or request supplier GSTR-1A amendment")
         ]
         
-        for r_data in rows:
-            _ = ws_sum.append(list(r_data))
-            
-        for r in range(5, 9):
-            ws_sum.cell(row=r, column=1).font = bold_f
-            ws_sum.cell(row=r, column=2).font = reg_f
-            ws_sum.cell(row=r, column=3).font = bold_f
-            ws_sum.cell(row=r, column=3).number_format = "₹#,##0.00"
-            ws_sum.cell(row=r, column=4).font = reg_f
+        for r_idx, r_data in enumerate(rows, start=start_row+1):
+            for c_idx, val in enumerate(r_data, 1):
+                cell = ws_sum.cell(row=r_idx, column=c_idx, value=val)
+                cell.font = bold_f if c_idx in [1, 3] else reg_f
+                if c_idx == 3:
+                    cell.number_format = "₹#,##0.00"
 
         ws_sum.column_dimensions["A"].width = 44
         ws_sum.column_dimensions["B"].width = 16
@@ -411,7 +400,7 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
 
     return output.getvalue()
 
-def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0, company_info=None, query_obj=None) -> bytes:
+def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signoff_data, tolerance=1.0, company_info=None, query_obj=None, metadata=None) -> bytes:
     output = io.BytesIO()
     timestamp_utc = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -454,7 +443,6 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         workbook = writer.book
-
         ws_summary = workbook.create_sheet(title="Audit & Control Summary", index=0)
         ws_summary.views.sheetView[0].showGridLines = True
 
@@ -466,29 +454,24 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary["A2"].font = italic_font
         ws_summary.merge_cells("A2:C2")
 
-        ws_summary["A3"] = "SOX 404 / ISA-500 Standard Financial Statement & Tax Assertion Audit Trail"
-        ws_summary["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
-        ws_summary.merge_cells("A3:C3")
-
-        metadata = [
+        meta_rows = [
             ("Execution Timestamp (UTC):", timestamp_utc),
+            ("Source A Ingest SHA-256:", metadata.get("source_a_fingerprint", "N/A") if metadata else "N/A"),
+            ("Source B Ingest SHA-256:", metadata.get("source_b_fingerprint", "N/A") if metadata else "N/A"),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
-            ("Matching Methodology:", "3-Tier (Deterministic Exact -> Levenshtein/Jaro-Winkler Fuzzy)"),
-            ("Control Assertion Target:", "Completeness, Accuracy, and Valuation (Financial & Tax Controls)")
+            ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Deterministic Exact -> Discrepancy -> Open Exceptions)"),
+            ("Control Assertion Standard:", "PCAOB AS 2201 / SOX 404 Completeness & Accuracy Assurance")
         ]
-        _ = ws_summary.append([])
-        for label, val in metadata:
-            _ = ws_summary.append([label, val])
+        
+        for idx, (label, val) in enumerate(meta_rows, start=4):
+            c1 = ws_summary.cell(row=idx, column=1, value=label)
+            c2 = ws_summary.cell(row=idx, column=2, value=val)
+            c1.font = bold_font
+            c2.font = regular_font
 
-        for r in range(5, 9):
-            ws_summary.cell(row=r, column=1).font = bold_font
-            ws_summary.cell(row=r, column=2).font = regular_font
-
-        _ = ws_summary.append([])
-        _ = ws_summary.append(["Reconciliation Category", "Record Count", "Control Status"])
-        summary_header_row = 10
-        for col_idx in range(1, 4):
-            cell = ws_summary.cell(row=summary_header_row, column=col_idx)
+        header_row = 11
+        for col_idx, h_text in enumerate(["Reconciliation Assertion Category", "Record Count", "Control Status"], 1):
+            cell = ws_summary.cell(row=header_row, column=col_idx, value=h_text)
             cell.fill = navy_header_fill
             cell.font = white_bold_font
             cell.alignment = Alignment(horizontal="center" if col_idx > 1 else "left")
@@ -500,24 +483,21 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             ("Source B Exceptions (External Missing in Ledger)", len(b_copy), "Action Required" if len(b_copy) > 0 else "Cleared"),
         ]
 
-        for item in summary_rows:
-            _ = ws_summary.append(list(item))
-
-        for r in range(11, 15):
-            for c in range(1, 4):
-                cell = ws_summary.cell(row=r, column=c)
+        for r_idx, r_data in enumerate(summary_rows, start=header_row+1):
+            for c_idx, val in enumerate(r_data, 1):
+                cell = ws_summary.cell(row=r_idx, column=c_idx, value=val)
                 cell.font = regular_font
                 cell.border = thin_border
-                if c == 2:
+                if c_idx == 2:
                     cell.alignment = Alignment(horizontal="right")
                     cell.number_format = "#,##0"
-                elif c == 3:
+                elif c_idx == 3:
                     cell.alignment = Alignment(horizontal="center")
 
-        _ = ws_summary.append([])
-        sign_off_header_row = 16
-        ws_summary.cell(row=sign_off_header_row, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)").font = bold_font
-        ws_summary.cell(row=sign_off_header_row, column=1).fill = section_fill
+        sign_off_header_row = header_row + len(summary_rows) + 2
+        sec_cell = ws_summary.cell(row=sign_off_header_row, column=1, value="Internal Control Sign-Off (SOX 404 / Four-Eyes Governance)")
+        sec_cell.font = bold_font
+        sec_cell.fill = section_fill
         ws_summary.merge_cells(start_row=sign_off_header_row, start_column=1, end_row=sign_off_header_row, end_column=3)
 
         sig_status = "VERIFIED / ELECTRONICALLY SIGNED" if signoff_data.get("preparer_signed") else "PENDING SIGNATURE"
@@ -528,17 +508,15 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             ("Supervisory Audit Notes:", signoff_data.get("audit_comments", "None noted"), "Document Status: Final Closed")
         ]
 
-        for c1, c2, c3 in signoff_entries:
-            _ = ws_summary.append([c1, c2, c3])
-
-        for r in range(sign_off_header_row + 1, sign_off_header_row + 5):
+        for r_idx, (c1_val, c2_val, c3_val) in enumerate(signoff_entries, start=sign_off_header_row+1):
+            ws_summary.cell(row=r_idx, column=1, value=c1_val).font = bold_font
+            ws_summary.cell(row=r_idx, column=2, value=c2_val).font = regular_font
+            ws_summary.cell(row=r_idx, column=3, value=c3_val).font = regular_font
             for c in range(1, 4):
-                cell = ws_summary.cell(row=r, column=c)
-                cell.font = bold_font if c == 1 else regular_font
-                cell.border = thin_border
+                ws_summary.cell(row=r_idx, column=c).border = thin_border
 
-        ws_summary.column_dimensions["A"].width = 64
-        ws_summary.column_dimensions["B"].width = 60
+        ws_summary.column_dimensions["A"].width = 44
+        ws_summary.column_dimensions["B"].width = 55
         ws_summary.column_dimensions["C"].width = 65
 
         data_sheets = {
@@ -560,19 +538,9 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
                 cell.font = white_bold_font
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-            for row in ws.iter_rows(min_row=2, max_row=len(df_content) + 1, min_col=1, max_col=len(df_content.columns)):
-                for cell in row:
-                    cell.border = thin_border
-                    cell.font = regular_font
-                    if isinstance(cell.value, (int, float)):
-                        cell.number_format = "#,##0.00"
-
             for col in ws.columns:
-                max_len = 0
+                max_len = max(len(str(cell.value or "")) for cell in col)
                 col_letter = get_column_letter(col[0].column)
-                for cell in col:
-                    val_str = str(cell.value or "")
-                    max_len = max(max_len, len(val_str))
                 ws.column_dimensions[col_letter].width = min(max(max_len + 4, 15), 55)
 
     return output.getvalue()
@@ -699,232 +667,6 @@ def build_vendor_gst_notice(buyer_name, buyer_gstin, supplier_name, missing_invo
     return html, total_blocked_tax
 
 # ==============================================================================
-# --- PDF Executive Sign-Off Certificate ---
-# ==============================================================================
-def sanitize_pdf_text(text: str) -> str:
-    if not text:
-        return ""
-    replacements = {"—": "-", "–": "-", "’": "'", "‘": "'", "“": '"', "”": '"', "•": "*", "…": "...", "±": "+/-"}
-    for orig, rep in replacements.items():
-        text = text.replace(orig, rep)
-    return text.encode("latin-1", "replace").decode("latin-1")
-
-class AuditCertificatePDF(FPDF):
-    def __init__(self, logo_path=None):
-        super().__init__()
-        self.logo_path = logo_path
-
-    def header(self):
-        self.set_fill_color(27, 54, 93)
-        self.rect(0, 0, 210, 16, 'F')
-        self.set_text_color(255, 255, 255)
-        self.set_font('Helvetica', 'B', 11)
-        self.cell(0, 4, 'AUTORECONFLOW - FINANCIAL RECONCILIATION, TAX & AUDIT CERTIFICATE', 0, 1, 'C')
-        self.ln(6)
-
-    def footer(self):
-        self.set_y(-18)
-        self.set_font('Helvetica', 'I', 8)
-        self.set_text_color(128, 128, 128)
-        self.cell(0, 4, 'Confidential - Statutory Audit Evidence | PCAOB AS 2201 / SOX 404 / ISA-500 Standard', 0, 1, 'C')
-        self.cell(0, 4, f'Page {self.page_no()}', 0, 0, 'C')
-
-def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_b_count, signoff_data, tolerance, logo_bytes=None, company_info=None, query_trail="") -> bytes:
-    logo_temp_file = None
-    if logo_bytes:
-        try:
-            logo_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            logo_temp.write(logo_bytes)
-            logo_temp.flush()
-            logo_temp.close()
-            logo_temp_file = logo_temp.name
-        except Exception:
-            logo_temp_file = None
-
-    pdf = AuditCertificatePDF(logo_path=logo_temp_file)
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    comp_name = sanitize_pdf_text(company_info.get("name", "AutoReconFlow Enterprise"))
-    comp_addr = sanitize_pdf_text(company_info.get("address", ""))
-    comp_uid = sanitize_pdf_text(company_info.get("uid", ""))
-
-    y_brand_start = pdf.get_y()
-    pdf.set_xy(10, y_brand_start)
-    pdf.set_font('Helvetica', 'B', 13)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(120, 6, comp_name, ln=True)
-
-    if comp_uid:
-        pdf.set_font('Helvetica', 'B', 8)
-        pdf.set_text_color(70, 70, 70)
-        pdf.cell(120, 4.5, f"Legal / Tax Identification: {comp_uid}", ln=True)
-
-    if comp_addr:
-        pdf.set_font('Helvetica', '', 7.5)
-        pdf.set_text_color(100, 100, 100)
-        pdf.multi_cell(125, 3.8, f"Registered Office: {comp_addr}")
-
-    if logo_temp_file and os.path.exists(logo_temp_file):
-        try:
-            pdf.image(logo_temp_file, x=150, y=y_brand_start - 2, h=16)
-        except Exception:
-            pass
-
-    pdf.set_y(max(pdf.get_y() + 3, y_brand_start + 18))
-    pdf.set_draw_color(203, 213, 225)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(4)
-
-    pdf.set_font('Helvetica', 'B', 14)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(0, 7, 'Financial Reconciliation & Tax Audit Certificate', ln=True, align='L')
-    pdf.set_font('Helvetica', 'I', 8.5)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 4.5, 'Compliance Certification under PCAOB AS 2201 / SOX Section 404 & ISA-500 Standards', ln=True, align='L')
-    pdf.ln(3)
-
-    pdf.set_fill_color(248, 250, 252)
-    pdf.set_draw_color(203, 213, 225)
-    pdf.rect(10, pdf.get_y(), 190, 22, 'DF')
-    pdf.set_xy(14, pdf.get_y() + 2)
-
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(50, 50, 50)
-    pdf.cell(45, 4.5, 'Execution Timestamp (UTC):', 0, 0)
-    pdf.set_font('Helvetica', '', 8.5)
-    pdf.cell(55, 4.5, sanitize_pdf_text(signoff_data.get('preparer_date', '')), 0, 0)
-
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.cell(40, 4.5, 'Workpaper Reference:', 0, 0)
-    pdf.set_font('Helvetica', '', 8.5)
-    pdf.cell(45, 4.5, sanitize_pdf_text(signoff_data.get('wp_ref', '')), 0, 1)
-
-    pdf.set_x(14)
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.cell(45, 4.5, 'Variance Tolerance:', 0, 0)
-    pdf.set_font('Helvetica', '', 8.5)
-    pdf.cell(55, 4.5, f'+/- {tolerance:.2f} Currency Units', 0, 0)
-
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.cell(40, 4.5, 'Supervisory Verdict:', 0, 0)
-    verdict = sanitize_pdf_text(signoff_data.get('review_verdict', 'Approved / Cleared'))
-    pdf.set_font('Helvetica', 'B', 8.5)
-    if 'Approved' in verdict:
-        pdf.set_text_color(16, 124, 65)
-    else:
-        pdf.set_text_color(180, 40, 40)
-    pdf.cell(45, 4.5, verdict, 0, 1)
-
-    pdf.ln(6)
-
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_fill_color(27, 54, 93)
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.cell(110, 6.5, 'Reconciliation Assertion Category', 1, 0, 'L', fill=True)
-    pdf.cell(35, 6.5, 'Record Count', 1, 0, 'C', fill=True)
-    pdf.cell(45, 6.5, 'Audit Status', 1, 1, 'C', fill=True)
-
-    table_data = [
-        ("Tier-1 Deterministic Matches (Exact Key & Net Match)", str(matched_count), "Cleared"),
-        ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", str(fuzzy_count), "Supervisory Review" if fuzzy_count > 0 else "Cleared"),
-        ("Source A Exceptions (Subledger Missing in External Records)", str(un_a_count), "Remediation Req." if un_a_count > 0 else "Cleared"),
-        ("Source B Exceptions (External Records Missing in Subledger)", str(un_b_count), "Remediation Req." if un_b_count > 0 else "Cleared"),
-    ]
-
-    pdf.set_text_color(40, 40, 40)
-    pdf.set_font('Helvetica', '', 8)
-    for cat, count, status in table_data:
-        pdf.cell(110, 6, f"  {cat}", 1, 0, 'L')
-        pdf.cell(35, 6, count, 1, 0, 'C')
-        if status == "Cleared":
-            pdf.set_text_color(16, 124, 65)
-        else:
-            pdf.set_text_color(180, 40, 40)
-        pdf.cell(45, 6, status, 1, 1, 'C')
-        pdf.set_text_color(40, 40, 40)
-
-    pdf.ln(7)
-
-    pdf.set_font('Helvetica', 'B', 10.5)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(0, 5.5, 'Four-Eyes Internal Control Attestation', ln=True)
-    pdf.ln(2)
-
-    y_start = pdf.get_y()
-    pdf.set_fill_color(248, 250, 252)
-    pdf.rect(10, y_start, 92, 40, 'DF')
-    pdf.set_xy(14, y_start + 2.5)
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(85, 4.5, 'PREPARER (First Line of Defense)', 0, 1)
-
-    pdf.set_x(14)
-    pdf.set_font('Helvetica', '', 8)
-    pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('preparer_name'))}", 0, 1)
-    pdf.set_x(14)
-    pdf.cell(85, 4.2, f"System / Emp ID: {sanitize_pdf_text(signoff_data.get('preparer_id'))}", 0, 1)
-    pdf.set_x(14)
-    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('preparer_date'))}", 0, 1)
-    sig_text = "[VERIFIED ELECTRONIC SIGNATURE - COMPLETED]" if signoff_data.get('preparer_signed') else "[UNSIGNED]"
-    pdf.set_font('Helvetica', 'B', 7.5)
-    if signoff_data.get('preparer_signed'):
-        pdf.set_text_color(16, 124, 65)
-    else:
-        pdf.set_text_color(180, 40, 40)
-    pdf.cell(85, 5.5, sig_text, 0, 1)
-
-    pdf.set_fill_color(248, 250, 252)
-    pdf.rect(108, y_start, 92, 40, 'DF')
-    pdf.set_xy(112, y_start + 2.5)
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(85, 4.5, 'REVIEWER (Supervisory Review / Oversight)', 0, 1)
-
-    pdf.set_x(112)
-    pdf.set_font('Helvetica', '', 8)
-    pdf.set_text_color(50, 50, 50)
-    pdf.cell(85, 4.2, f"Name: {sanitize_pdf_text(signoff_data.get('reviewer_name'))}", 0, 1)
-    pdf.set_x(112)
-    pdf.cell(85, 4.2, f"Designation: {sanitize_pdf_text(signoff_data.get('reviewer_title'))}", 0, 1)
-    pdf.set_x(112)
-    pdf.cell(85, 4.2, f"Timestamp: {sanitize_pdf_text(signoff_data.get('reviewer_date'))}", 0, 1)
-    pdf.set_font('Helvetica', 'B', 7.5)
-    pdf.set_text_color(16, 124, 65)
-    pdf.cell(85, 5.5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 1)
-
-    pdf.set_y(y_start + 44)
-
-    pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.set_text_color(27, 54, 93)
-    pdf.cell(0, 4.5, 'Supervisory Audit Notes & Resolution Trail:', ln=True)
-    pdf.set_font('Helvetica', 'I', 8)
-    pdf.set_text_color(60, 60, 60)
-    notes_clean = sanitize_pdf_text(signoff_data.get('audit_comments', 'No comments noted.') or 'None noted.')
-    if query_trail:
-        notes_clean += f" | {sanitize_pdf_text(query_trail)}"
-    pdf.multi_cell(0, 4, notes_clean)
-    pdf.ln(3)
-
-    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref')}_{matched_count}_{fuzzy_count}_{un_a_count}_{un_b_count}_{signoff_data.get('preparer_date')}_{signoff_data.get('reviewer_date')}_{tolerance}_{query_trail}"
-    doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
-
-    pdf.set_fill_color(240, 240, 240)
-    pdf.set_font('Courier', 'B', 7.5)
-    pdf.set_text_color(70, 70, 70)
-    pdf.cell(0, 6, f" SHA-256 DIGITAL IMMUTABILITY AUDIT HASH: {doc_hash} ", 1, 1, 'C', fill=True)
-
-    result_bytes = bytes(pdf.output())
-    if logo_temp_file and os.path.exists(logo_temp_file):
-        try:
-            os.remove(logo_temp_file)
-        except Exception:
-            pass
-
-    return result_bytes
-
-# ==============================================================================
 # --- SIDEBAR CONTROLS ---
 # ==============================================================================
 st.sidebar.markdown("### ⚡ AutoReconFlow")
@@ -938,7 +680,48 @@ company_address = st.sidebar.text_area("Registered Office Address", value="Tower
 company_uid = st.sidebar.text_input("Tax / Entity ID (GSTIN / VAT / CIN)", value="CIN: U72200HR2026PTC109823", key="cfg_comp_uid")
 st.sidebar.divider()
 
-# In-App License Verification Widget
+with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
+    st.caption("Zero-token SMTP engine. Compatible with Gmail App Passwords, Outlook, and Brevo.")
+    enable_smtp = st.checkbox("Enable Live Email Dispatch", value=False, key="smtp_enabled")
+    
+    default_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com") if hasattr(st, "secrets") else "smtp.gmail.com"
+    default_port = str(st.secrets.get("SMTP_PORT", "465")) if hasattr(st, "secrets") else "465"
+    default_user = st.secrets.get("SMTP_USER", "") if hasattr(st, "secrets") else ""
+    default_pass = st.secrets.get("SMTP_PASSWORD", "") if hasattr(st, "secrets") else ""
+
+    smtp_host = st.text_input("SMTP Server Host", value=default_host, key="smtp_host")
+    smtp_port = st.text_input("SMTP Port (465=SSL / 587=TLS)", value=default_port, key="smtp_port")
+    smtp_user = st.text_input("Sender Email Address", value=default_user, placeholder="yourname@gmail.com", key="smtp_user")
+    smtp_pass = st.text_input("Sender App Password", value=default_pass, type="password", placeholder="16-character app password", key="smtp_pass")
+
+    smtp_cfg = {
+        "enabled": enable_smtp,
+        "host": smtp_host,
+        "port": smtp_port,
+        "user": smtp_user,
+        "password": smtp_pass
+    }
+
+    test_target = st.text_input("Test Target Email", value=smtp_user or "", placeholder="recipient@domain.com", key="smtp_test_target")
+    if st.button("🧪 Send Test Ping Email", use_container_width=True):
+        if not enable_smtp:
+            st.warning("Please check 'Enable Live Email Dispatch' first.")
+        else:
+            with st.spinner("Connecting to SMTP server..."):
+                ok, feedback = send_workflow_email(
+                    smtp_cfg, 
+                    test_target, 
+                    "AutoReconFlow - SMTP Connection Verified", 
+                    "This confirms your AutoReconFlow email trigger configuration is working properly.",
+                    build_html_email("SMTP Connection Verified", "Your AutoReconFlow email alerts are operational.", {"Status": "Operational", "Tested At": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")})
+                )
+                if ok:
+                    st.success("✅ Test email dispatched successfully! Check your inbox.")
+                else:
+                    st.error(f"❌ {feedback}")
+
+st.sidebar.divider()
+
 with st.sidebar.expander("🔑 License Activation & Verification", expanded=True):
     user_email_input = st.text_input("Registered Email", placeholder="buyer@clientdomain.com", key="lic_user_email")
     user_key_input = st.text_input("License Key", placeholder="ARF-PRAC-XXXX-XXXX-XXXX", key="lic_user_key")
@@ -1019,10 +802,18 @@ with tab_gst:
         u1, u2 = st.columns(2)
         with u1:
             fpr = st.file_uploader("Upload Purchase Register (Books / Tally)", type=["csv", "xlsx"], key="up_pr")
-            if fpr: df_pr = robust_read_file_polars(fpr)
+            if fpr: 
+                raw_pr = fpr.getvalue()
+                st.session_state["hash_gst_pr"] = compute_stream_sha256(raw_pr)
+                st.caption(f"🔒 **Purchase Register SHA-256:** `{st.session_state['hash_gst_pr']}`")
+                df_pr = robust_read_file_polars(fpr)
         with u2:
             f2b = st.file_uploader("Upload GSTR-2B Statement (GST Portal)", type=["csv", "xlsx"], key="up_2b")
-            if f2b: df_2b = robust_read_file_polars(f2b)
+            if f2b: 
+                raw_2b = f2b.getvalue()
+                st.session_state["hash_gst_2b"] = compute_stream_sha256(raw_2b)
+                st.caption(f"🔒 **GSTR-2B Statement SHA-256:** `{st.session_state['hash_gst_2b']}`")
+                df_2b = robust_read_file_polars(f2b)
 
     if df_pr is not None and df_2b is not None:
         st.success(f"✓ Loaded Purchase Register ({len(df_pr)} rows) and GSTR-2B ({len(df_2b)} rows) via Polars")
@@ -1076,7 +867,12 @@ with tab_gst:
             k3.metric("Bucket 3: Missing in 2B", f"{len(b3)} invoices", delta="-ITC Blocked", delta_color="inverse")
             k4.metric("Bucket 4: Tax Mismatches", f"{len(b4)} invoices", delta="Requires Review", delta_color="inverse")
 
-            wb_bytes = generate_gst_itc_excel_workpaper(b1, b2, b3, b4, company_name, company_uid)
+            gst_meta = {
+                "source_a_fingerprint": st.session_state.get("hash_gst_pr", "N/A"),
+                "source_b_fingerprint": st.session_state.get("hash_gst_2b", "N/A"),
+                "execution_id": f"GST-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            }
+            wb_bytes = generate_gst_itc_excel_workpaper(b1, b2, b3, b4, company_name, company_uid, metadata=gst_meta)
             st.download_button(
                 label="📥 Download Master GSTR-3B Audit Workpaper (.xlsx)",
                 data=wb_bytes,
@@ -1113,7 +909,7 @@ with tab_gst:
                         with st.expander(f"👁️ Preview Statutory Notice Draft (Blocked Tax: ₹{blocked_sum:,.2f})"):
                             st.components.v1.html(notice_html, height=340, scrolling=True)
                         if st.button("📤 Send Statutory GST Non-Filing Notice", type="primary", key="btn_send_supp_gst"):
-                            st.info("Notice logged into audit trail. Configure SMTP settings in sidebar to dispatch live email.")
+                            st.info("Notice logged into audit trail. Configure SMTP in sidebar to dispatch live email.")
             with t4: st.dataframe(b4, use_container_width=True)
 
 # ==============================================================================
@@ -1153,11 +949,19 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
         with v_col1:
             st.subheader("Source A: Internal Purchase Books / ERP")
             f_bks = st.file_uploader("Upload Internal Books (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_books")
-            if f_bks: df_books_vat = robust_read_file_polars(f_bks)
+            if f_bks: 
+                raw_bks = f_bks.getvalue()
+                st.session_state["hash_vat_bks"] = compute_stream_sha256(raw_bks)
+                st.caption(f"🔒 **Source A SHA-256:** `{st.session_state['hash_vat_bks']}`")
+                df_books_vat = robust_read_file_polars(f_bks)
         with v_col2:
             st.subheader("Source B: Supplier Statement / Tax Extract")
             f_ext = st.file_uploader("Upload Supplier / External Statement (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_ext")
-            if f_ext: df_ext_vat = robust_read_file_polars(f_ext)
+            if f_ext: 
+                raw_ext = f_ext.getvalue()
+                st.session_state["hash_vat_ext"] = compute_stream_sha256(raw_ext)
+                st.caption(f"🔒 **Source B SHA-256:** `{st.session_state['hash_vat_ext']}`")
+                df_ext_vat = robust_read_file_polars(f_ext)
 
     if df_books_vat is not None and df_ext_vat is not None:
         st.success(f"✓ Source A Books ({len(df_books_vat)} rows) and Source B External ({len(df_ext_vat)} rows) loaded via Polars.")
@@ -1238,7 +1042,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
                 st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
 
 # ==============================================================================
-# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (100% POLARS CORE) ---
+# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (100% CLEAN POLARS ARCHITECTURE) ---
 # ==============================================================================
 with tab_universal:
     st.markdown("""
@@ -1248,6 +1052,18 @@ with tab_universal:
         • <strong>ISA-500 (International Standard on Auditing)</strong>: Audit trail integrity, non-repudiation, line-item query threads, and cryptographic SHA-256 digital immutability hashing.
     </div>
     """, unsafe_allow_html=True)
+
+    with st.expander("📖 Comprehensive Procedure & Configuration Manual (SOX 404 / ISA-500 Standard)", expanded=False):
+        st.markdown("""
+        ### 🏛️ Section 1: Corporate Entity & Workpaper Branding Setup
+        AutoReconFlow stamps corporate identity metadata across all audit deliverables (Multi-tab Excel workpapers and signed PDF certificates).
+        
+        ### 📬 Section 2: Automated Email Dispatch & SMTP Mapping
+        Zero-token built-in SMTP engine (`smtplib`). No third-party paid API tokens required.
+        
+        ### 🔄 Section 3: Four-Eyes Governance & Line-Item Audit Query SOP
+        Enforces strict segregation of duties (SoD) under PCAOB AS 2201 and SOX 404.
+        """)
 
     SAMPLE_A_CSV = """Invoice_ID,Vendor_Name,Amount,Posting_Date
 INV-2026-101,Apex Tech Solutions,12500.00,2026-10-01
@@ -1282,11 +1098,19 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
         with col1:
             st.subheader("Source A (Ledger / Internal Records)")
             file_a = st.file_uploader("Upload CSV or XLSX", type=["csv", "xlsx", "xls"], key="file_a")
-            if file_a: df_a = robust_read_file_polars(file_a)
+            if file_a: 
+                raw_a = file_a.getvalue()
+                st.session_state["hash_source_a"] = compute_stream_sha256(raw_a)
+                st.caption(f"🔒 **Source A SHA-256 Fingerprint:** `{st.session_state['hash_source_a']}`")
+                df_a = robust_read_file_polars(file_a)
         with col2:
             st.subheader("Source B (Bank / Tax Portal / External Records)")
             file_b = st.file_uploader("Upload CSV or XLSX", type=["csv", "xlsx", "xls"], key="file_b")
-            if file_b: df_b = robust_read_file_polars(file_b)
+            if file_b: 
+                raw_b = file_b.getvalue()
+                st.session_state["hash_source_b"] = compute_stream_sha256(raw_b)
+                st.caption(f"🔒 **Source B SHA-256 Fingerprint:** `{st.session_state['hash_source_b']}`")
+                df_b = robust_read_file_polars(file_b)
 
     def get_default_index(columns, keywords, fallback_index=0):
         for idx, col in enumerate(columns):
@@ -1325,6 +1149,19 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             map_a = {"id": id_a, "party": party_a, "amt": amt_a}
             map_b = {"id": id_b, "party": party_b, "amt": amt_b}
 
+            # CONTROL 2: CHANGE-MANAGEMENT AUDIT LOG
+            st.session_state["execution_metadata"] = {
+                "execution_id": f"REC-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                "timestamp_utc": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "tolerance_applied": float(tolerance),
+                "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
+                "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A"),
+                "mapped_columns_source_a": map_a,
+                "mapped_columns_source_b": map_b,
+                "engine_core": "Polars Vectorized Multi-Core Engine v2.3",
+                "pcaob_standard_ref": "AS 2201 / SOX 404 Section 8(b)"
+            }
+
             with st.spinner("Processing through Polars 3-tier matching engine..."):
                 try:
                     matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
@@ -1343,7 +1180,11 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "fuzzy_pl": fuzzy,
                 "un_a_pl": un_a,
                 "un_b_pl": un_b,
-                "tolerance": tolerance
+                "tolerance": tolerance,
+                "amt_col_a": amt_a,
+                "amt_col_b": amt_b,
+                "input_total_ledger": float(df_a[amt_a].cast(pl.Float64, strict=False).fill_null(0.0).sum()),
+                "input_total_bank": float(df_b[amt_b].cast(pl.Float64, strict=False).fill_null(0.0).sum())
             }
             st.session_state["preparer_completed"] = False
             st.session_state["reviewer_approved"] = False
@@ -1363,7 +1204,29 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             un_a_pd = res["un_a_pd"]
             un_b_pd = res["un_b_pd"]
 
-            st.markdown("#### 📊 Internal Control Summary & Transaction Metrics")
+            # CONTROL 3: PIPELINE COMPLETENESS SUMMARY
+            st.markdown("#### ⚖️ Executive Reconciliation & Pipeline Completeness Summary")
+            amt_col = res["amt_col_a"]
+            input_ledger_amt = res["input_total_ledger"]
+            cleared_amt = float(matched_pd[amt_col].sum()) if len(matched_pd) > 0 and amt_col in matched_pd.columns else 0.0
+            open_exceptions_amt = float(un_a_pd[amt_col].sum()) if len(un_a_pd) > 0 and amt_col in un_a_pd.columns else 0.0
+            variance_amt = float(fuzzy_pd[amt_col].sum()) if len(fuzzy_pd) > 0 and amt_col in fuzzy_pd.columns else 0.0
+            
+            output_sum = cleared_amt + open_exceptions_amt + variance_amt
+            pipeline_diff = abs(input_ledger_amt - output_sum)
+
+            bal1, bal2, bal3, bal4 = st.columns(4)
+            bal1.metric("Ingested Ledger Total", f"₹{input_ledger_amt:,.2f}")
+            bal2.metric("Cleared Matches", f"₹{cleared_amt:,.2f}")
+            bal3.metric("Open Exceptions", f"₹{open_exceptions_amt:,.2f}")
+            bal4.metric("Pipeline Imbalance", f"₹{pipeline_diff:,.2f}", delta="Zero Discrepancy" if pipeline_diff < 0.01 else "-Asymmetry", delta_color="normal" if pipeline_diff < 0.01 else "inverse")
+
+            if pipeline_diff >= 0.01:
+                st.error("🚨 Control Exception: Data Pipeline Asymmetry Detected. Ingested cash volume differs from reconciled components.")
+            else:
+                st.success("✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Open Exceptions (0.00 Variance).")
+
+            st.markdown("#### 📊 Internal Control Transaction Metrics")
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Tier-1 Exact Matches", f"{len(matched_pd):,} records")
             k2.metric("Tier-2 Variance Review", f"{len(fuzzy_pd):,} records")
@@ -1383,14 +1246,13 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 }
             query_state = st.session_state["audit_query_thread"]
 
-            # --- FOUR-EYES GOVERNANCE SIGN-OFF WORKFLOW ---
+            # CONTROL 4: FOUR-EYES GOVERNANCE SIGN-OFF (DUAL-SIGNATURE SOD)
             with st.expander("✍️ Four-Eyes Internal Governance Sign-Off & Approval Workflow", expanded=True):
                 so_col1, so_col2 = st.columns(2)
                 now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-                # STAGE 1: PREPARER PANEL
                 with so_col1:
-                    st.markdown("##### 👤 Stage 1: Preparer (Analyst / Senior Accountant)")
+                    st.markdown("##### 👤 Stage 1: Preparer (First Line of Defense)")
                     prep_name = st.text_input("Preparer Full Name", value="Senior Recon Analyst", key="so_prep_name", disabled=is_prep_done)
                     prep_id = st.text_input("Employee / System ID", value="FIN-ACC-8921", key="so_prep_id", disabled=is_prep_done)
                     prep_email = st.text_input("Preparer Email Address", value="analyst@company.com", key="so_prep_email", disabled=is_prep_done)
@@ -1399,7 +1261,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     prep_signed = st.checkbox("I verify that ledger entries, tolerances, and files are audited.", value=True, key="so_prep_signed", disabled=is_prep_done)
 
                     if not is_prep_done:
-                        if st.button("✅ Mark Preparer Task as Complete & Notify Reviewer", type="primary", use_container_width=True, key="btn_prep_submit"):
+                        if st.button("🔒 Complete & Electronically Seal Stage 1", type="primary", use_container_width=True, key="btn_prep_submit"):
                             if not prep_signed:
                                 st.error("Preparer verification box must be checked before submission.")
                             else:
@@ -1414,11 +1276,10 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     else:
                         st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
 
-                # STAGE 2: REVIEWER PANEL
                 with so_col2:
                     if not is_prep_done:
                         st.markdown("##### 🛡️ Stage 2: Reviewer (Supervisory Oversight)")
-                        st.info("⏳ Reviewer stage is locked. Awaiting Preparer completion on the left.")
+                        st.info("⏳ Reviewer stage is locked. Preparer verification required first to enforce Segregation of Duties (SoD).")
                         rev_name = "Finance Controller"
                         rev_title = "VP - Financial Reporting & Controls"
                         rev_date = now_str
@@ -1436,7 +1297,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches verified. Exceptions evaluated under tolerable limit.", key="so_notes", disabled=is_rev_approved)
 
                         if not is_rev_approved and query_state["status"] not in ["PENDING_CLARIFICATION"]:
-                            if st.button("🛡️ Approve & Finalize Supervisory Sign-Off (No Queries)", type="primary", use_container_width=True, key="btn_rev_approve_direct"):
+                            if st.button("🛡️ Approve, Seal & Issue Audit Artifacts", type="primary", use_container_width=True, key="btn_rev_approve_direct"):
                                 st.session_state["reviewer_approved"] = True
                                 st.session_state["saved_rev_name"] = rev_name
                                 st.session_state["saved_rev_title"] = rev_title
@@ -1448,11 +1309,10 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         elif is_rev_approved:
                             st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
 
-            # --- LINE-ITEM QUERY & CLARIFICATION THREAD ---
             if is_prep_done and not is_rev_approved:
                 st.markdown("#### 💬 Supervisory Exception Query & Clarification Thread")
                 disputed_items = []
-                for col_id_candidate in ["Invoice_ID", "Transaction_Ref", "col_0"]:
+                for col_id_candidate in ["Invoice_ID", "Transaction_Ref", "col_0", "Document_ID"]:
                     if col_id_candidate in un_b_pd.columns: disputed_items.extend(un_b_pd[col_id_candidate].astype(str).tolist())
                     if col_id_candidate in fuzzy_pd.columns: disputed_items.extend(fuzzy_pd[col_id_candidate].astype(str).tolist())
                     if col_id_candidate in un_a_pd.columns: disputed_items.extend(un_a_pd[col_id_candidate].astype(str).tolist())
@@ -1509,20 +1369,23 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "reviewer_date": st.session_state.get("saved_rev_date", rev_date),
                 "review_verdict": st.session_state.get("saved_rev_verdict", rev_verdict),
                 "wp_ref": st.session_state.get("saved_wp_ref", wp_ref),
-                "audit_comments": st.session_state.get("saved_audit_notes", audit_notes)
+                "audit_comments": st.session_state.get("saved_audit_notes", audit_notes),
+                "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
+                "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A")
             }
             active_comp_info = {"name": company_name, "address": company_address, "uid": company_uid}
             query_trail_summary = f"Item {query_state['item_id']}: Queried -> Clarified -> Cleared." if query_state.get("status") == "APPROVED" else ""
 
-            # --- OFFICIAL DELIVERABLES HUB ---
+            # CONTROL 5: IMMUTABLE METADATA EVIDENCE EXPORTS
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             
             if is_rev_approved:
                 excel_bytes = generate_consolidated_workbook(
                     matched_pd, fuzzy_pd, un_a_pd, un_b_pd, signoff_payload, 
-                    tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state
+                    tolerance=res["tolerance"], company_info=active_comp_info, query_obj=query_state,
+                    metadata=st.session_state.get("execution_metadata")
                 )
-                _ = st.download_button(
+                st.download_button(
                     label="📊 Download Final SOX Audit Workpaper (.xlsx)",
                     data=excel_bytes,
                     file_name=f"AutoReconFlow_SOX_Audit_Report_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx",
@@ -1536,7 +1399,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     len(matched_pd), len(fuzzy_pd), len(un_a_pd), len(un_b_pd), signoff_payload, res["tolerance"], 
                     logo_bytes=logo_file_bytes, company_info=active_comp_info, query_trail=query_trail_summary
                 )
-                _ = st.download_button(
+                st.download_button(
                     label="📜 Download Official Signed PDF Audit Certificate",
                     data=pdf_bytes,
                     file_name=f"AutoReconFlow_SignOff_Certificate_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf",
@@ -1556,7 +1419,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             with tab1:
                 if len(matched_pd) > 0:
                     st.dataframe(matched_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Deterministic Matches (CSV)",
                         data=res["matched_pl"].write_csv(),
                         file_name="deterministic_matches.csv",
@@ -1570,7 +1433,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(fuzzy_pd) > 0:
                     st.markdown("**Discrepancies Requiring Review (Levenshtein / Jaro-Winkler Variance)**")
                     st.dataframe(fuzzy_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Discrepancy Candidates (CSV)",
                         data=res["fuzzy_pl"].write_csv(),
                         file_name="fuzzy_review_candidates.csv",
@@ -1584,7 +1447,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_a_pd) > 0:
                     st.markdown("**Source A Entries Missing in Source B (Unmatched Subledger Items)**")
                     st.dataframe(un_a_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Source A Exceptions (CSV)",
                         data=res["un_a_pl"].write_csv(),
                         file_name="unmatched_ledger_exceptions.csv",
@@ -1598,7 +1461,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 if len(un_b_pd) > 0:
                     st.markdown("**Source B Entries Missing in Source A (Timing & External Exceptions)**")
                     st.dataframe(un_b_pd, use_container_width=True)
-                    _ = st.download_button(
+                    st.download_button(
                         label="📥 Download Source B Exceptions (CSV)",
                         data=res["un_b_pl"].write_csv(),
                         file_name="unmatched_external_exceptions.csv",

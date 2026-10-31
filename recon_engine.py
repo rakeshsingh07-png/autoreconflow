@@ -24,10 +24,15 @@ def clean_party_string(val: str) -> str:
     tokens = [t for t in s.split() if t not in legal_stopwords]
     return " ".join(tokens) if tokens else s
 
-def calculate_aging_days(date_val) -> tuple:
-    """Calculates aging in days and categorizes into statutory audit risk buckets."""
+def calculate_aging_days(date_val, as_at_date=None) -> tuple:
+    """Calculates aging in days against an explicit 'As At' cut-off date."""
     if not date_val or date_val is None:
         return 0, "Unspecified Date"
+    
+    if as_at_date is None:
+        as_at_date = datetime.date.today()
+    elif isinstance(as_at_date, datetime.datetime):
+        as_at_date = as_at_date.date()
     
     dt = None
     date_str = str(date_val).strip()
@@ -42,7 +47,7 @@ def calculate_aging_days(date_val) -> tuple:
     if not dt:
         return 0, "Unspecified Date"
         
-    delta_days = (datetime.date.today() - dt).days
+    delta_days = (as_at_date - dt).days
     delta_days = max(delta_days, 0)
     
     if delta_days <= 30:
@@ -62,13 +67,14 @@ def execute_high_volume_reconciliation(
     map_a: dict,
     map_b: dict,
     tolerance: float = 1.0,
-    fuzzy_threshold: float = 70.0
+    fuzzy_threshold: float = 70.0,
+    as_at_date: datetime.date = None
 ):
     """
-    Vectorized 3-Tier Financial Reconciliation Engine with PCAOB Aging Analysis.
+    Vectorized 3-Tier Financial Reconciliation Engine with Dynamic 'As At' Aging.
     Tier 1: Deterministic Exact Match (Normalized ID + Amount within Tolerance)
     Tier 2: Heuristic Fuzzy Review (Side-by-Side Amounts & Variance)
-    Tier 3: Open Exceptions with Dynamic Aging & Risk Buckets
+    Tier 3: Open Exceptions with Dynamic Aging & Risk Buckets against 'as_at_date'
     """
     id_a, party_a, amt_a = map_a["id"], map_a["party"], map_a["amt"]
     id_b, party_b, amt_b = map_b["id"], map_b["party"], map_b["amt"]
@@ -174,7 +180,7 @@ def execute_high_volume_reconciliation(
     un_a_out = clean_output_df(unmatched_a)
     un_b_out = clean_output_df(unmatched_b)
 
-    # Calculate Aging for Source A Exceptions
+    # Calculate Aging for Source A Exceptions using the 'as_at_date'
     date_col_a = None
     for c in df_a.columns:
         if any(k in str(c).lower() for k in ["date", "dt", "posting", "value"]):
@@ -182,13 +188,13 @@ def execute_high_volume_reconciliation(
             break
 
     if len(un_a_out) > 0 and date_col_a and date_col_a in un_a_out.columns:
-        aging_res_a = [calculate_aging_days(d) for d in un_a_out[date_col_a].to_list()]
+        aging_res_a = [calculate_aging_days(d, as_at_date=as_at_date) for d in un_a_out[date_col_a].to_list()]
         un_a_out = un_a_out.with_columns([
             pl.Series("Aging_Days", [r[0] for r in aging_res_a]),
             pl.Series("Aging_Bucket", [r[1] for r in aging_res_a])
         ])
 
-    # Calculate Aging for Source B Exceptions
+    # Calculate Aging for Source B Exceptions using the 'as_at_date'
     date_col_b = None
     for c in df_b.columns:
         if any(k in str(c).lower() for k in ["date", "dt", "posting", "value"]):
@@ -196,7 +202,7 @@ def execute_high_volume_reconciliation(
             break
 
     if len(un_b_out) > 0 and date_col_b and date_col_b in un_b_out.columns:
-        aging_res_b = [calculate_aging_days(d) for d in un_b_out[date_col_b].to_list()]
+        aging_res_b = [calculate_aging_days(d, as_at_date=as_at_date) for d in un_b_out[date_col_b].to_list()]
         un_b_out = un_b_out.with_columns([
             pl.Series("Aging_Days", [r[0] for r in aging_res_b]),
             pl.Series("Aging_Bucket", [r[1] for r in aging_res_b])

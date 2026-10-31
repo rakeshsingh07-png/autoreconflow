@@ -68,7 +68,8 @@ def execute_high_volume_reconciliation(
     map_b: dict,
     tolerance: float = 1.0,
     fuzzy_threshold: float = 70.0,
-    as_at_date: datetime.date = None
+    as_at_date: datetime.date = None,
+    **kwargs
 ):
     """
     Vectorized 3-Tier Financial Reconciliation Engine with Dynamic 'As At' Aging.

@@ -357,6 +357,12 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
         white_bold = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         bold_f = Font(name="Calibri", size=11, bold=True)
         reg_f = Font(name="Calibri", size=11)
+        thin_border = Border(
+            left=Side(style="thin", color="CBD5E1"),
+            right=Side(style="thin", color="CBD5E1"),
+            top=Side(style="thin", color="CBD5E1"),
+            bottom=Side(style="thin", color="CBD5E1")
+        )
         
         ws_sum["A1"] = f"{company_name} — GSTR-2B vs Purchase Register Audit Workpaper"
         ws_sum["A1"].font = Font(name="Calibri", size=14, bold=True, color="1B365D")
@@ -374,36 +380,89 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             ws_sum.cell(row=5, column=1).font = bold_f
             ws_sum.cell(row=6, column=1).font = bold_f
 
-        headers = ["GSTR-3B Statutory Bucket", "Invoice Count", "Total Tax / ITC Impact (₹)", "Statutory Recommendation & Action"]
+        # 6-Column Executive Audit Header matching the web app
+        headers = [
+            "Statutory Bucket",
+            "Invoices",
+            "Tax Impact",
+            "Audit Status",
+            "Meaning",
+            "Required Statutory Action"
+        ]
         start_row = 8
         for c, h in enumerate(headers, 1):
             cell = ws_sum.cell(row=start_row, column=c, value=h)
             cell.fill = navy_header
             cell.font = white_bold
+            cell.alignment = Alignment(horizontal="center" if c in [2, 3, 4] else "left", vertical="center")
             
-        b1_tax = safe_sum_numeric(df_b1, 'Claimable_ITC_Total')
-        b2_tax = safe_sum_numeric(df_b2, 'Available_Unclaimed_ITC')
-        b3_tax = safe_sum_numeric(df_b3, 'Risk_Amount_ITC')
-        b4_tax = safe_sum_numeric(df_b4, 'Tax_Variance')
+        def get_series_sum(df_target, col_name):
+            if df_target is None or len(df_target) == 0 or col_name not in df_target.columns:
+                return 0.0
+            return float(pd.to_numeric(df_target[col_name].astype(str).str.replace(r'[^0-9.-]', '', regex=True), errors='coerce').fillna(0.0).sum())
+
+        b1_tax = get_series_sum(df_b1, 'Claimable_ITC_Total')
+        b2_tax = get_series_sum(df_b2, 'Available_Unclaimed_ITC')
+        b3_tax = get_series_sum(df_b3, 'Risk_Amount_ITC')
+        b4_tax = get_series_sum(df_b4, 'Tax_Variance')
         
         rows = [
-            ("Bucket 1: Direct Match (Eligible ITC)", len(df_b1), b1_tax, "Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)"),
-            ("Bucket 2: In 2B but Missing in Books", len(df_b2), b2_tax, "Verify unbooked expenses; pass purchase voucher before claiming"),
-            ("Bucket 3: In Books but Missing in 2B", len(df_b3), b3_tax, "DO NOT CLAIM. Block credit; issue notice to non-filing supplier"),
-            ("Bucket 4: Value & Tax Head Discrepancies", len(df_b4), b4_tax, "Rectify voucher tax heads or request supplier GSTR-1A amendment")
+            (
+                "Bucket 1: Direct Matches",
+                len(df_b1),
+                b1_tax,
+                "Eligible to Claim",
+                "Invoices match perfectly between Books and GSTR-2B portal records.",
+                "Safe to Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)."
+            ),
+            (
+                "Bucket 2: Missing in Books",
+                len(df_b2),
+                b2_tax,
+                "Verify & Book",
+                "Invoices filed by vendors in GSTR-2B, but unrecorded in purchase ledger/ERP.",
+                "Unclaimed Credit. Verify receipt of supply; record purchase voucher before claiming."
+            ),
+            (
+                "Bucket 3: Missing in 2B",
+                len(df_b3),
+                b3_tax,
+                "ITC Blocked",
+                "Booked in ledger, but supplier failed to file GSTR-1/IFF or used wrong GSTIN.",
+                "STRICTLY DO NOT CLAIM. Ineligible under Section 16(2)(aa); issue vendor notice."
+            ),
+            (
+                "Bucket 4: Tax Mismatches",
+                len(df_b4),
+                b4_tax,
+                "Requires Review",
+                "Taxable value or tax heads differ between Books and GSTR-2B statement.",
+                "Rectify voucher tax heads or request supplier GSTR-1A amendment."
+            )
         ]
         
         for r_idx, r_data in enumerate(rows, start=start_row+1):
             for c_idx, val in enumerate(r_data, 1):
                 cell = ws_sum.cell(row=r_idx, column=c_idx, value=val)
-                cell.font = bold_f if c_idx in [1, 3] else reg_f
-                if c_idx == 3:
+                cell.font = bold_f if c_idx in [1, 4] else reg_f
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+                
+                if c_idx == 2:
+                    cell.number_format = "#,##0"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif c_idx == 3:
                     cell.number_format = "₹#,##0.00"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif c_idx == 4:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        ws_sum.column_dimensions["A"].width = 44
-        ws_sum.column_dimensions["B"].width = 16
-        ws_sum.column_dimensions["C"].width = 28
-        ws_sum.column_dimensions["D"].width = 65
+        ws_sum.column_dimensions["A"].width = 30
+        ws_sum.column_dimensions["B"].width = 14
+        ws_sum.column_dimensions["C"].width = 20
+        ws_sum.column_dimensions["D"].width = 20
+        ws_sum.column_dimensions["E"].width = 45
+        ws_sum.column_dimensions["F"].width = 55
 
         sheets = {
             "Bucket 1 - Eligible ITC": df_b1,
@@ -416,10 +475,12 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             clean_df.to_excel(writer, sheet_name=title, index=False)
             ws = writer.sheets[title]
             ws.views.sheetView[0].showGridLines = True
+            ws.freeze_panes = "A2"
             for col_idx in range(1, len(clean_df.columns) + 1):
                 c_cell = ws.cell(row=1, column=col_idx)
                 c_cell.fill = navy_header
                 c_cell.font = white_bold
+                c_cell.alignment = Alignment(horizontal="center", vertical="center")
             for col in ws.columns:
                 max_l = max(len(str(cell.value or "")) for cell in col)
                 col_let = get_column_letter(col[0].column)

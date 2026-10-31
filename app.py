@@ -1531,7 +1531,35 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                 st.rerun()
                     else:
                         st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
+# --- EMAIL DISPATCH TRIGGER ---
+                        if st.button("📧 Dispatch Audit Notification to Reviewer", key="btn_send_email_direct", use_container_width=True):
+                            target_to = st.session_state.get("saved_rev_target_email", rev_target_email)
+                            if not target_to or "@" not in target_to:
+                                st.error("Please provide a valid Reviewer Notification Email.")
+                            else:
+                                try:
+                                    smtp_server = st.secrets.get("SMTP_SERVER", "smtp.gmail.com")
+                                    smtp_port = int(st.secrets.get("SMTP_PORT", 587))
+                                    sender_email = st.secrets.get("SMTP_EMAIL", st.session_state.get("saved_prep_email", prep_email))
+                                    sender_pwd = st.secrets.get("SMTP_PASSWORD", "")
 
+                                    if not sender_pwd:
+                                        st.info(f"Notification queued for {target_to} (Simulation mode: configure SMTP_PASSWORD in Streamlit secrets for live relay).")
+                                    else:
+                                        msg = MIMEMultipart()
+                                        msg["From"] = sender_email
+                                        msg["To"] = target_to
+                                        msg["Subject"] = f"AutoReconFlow Audit Alert: Stage 1 Sealed for Review [Ref: {st.session_state.get('saved_wp_ref', 'WP-SOX-REC')}]"
+                                        body = f"Hello Controller,\n\nStage 1 preparation has been completed and electronically signed by {st.session_state.get('saved_prep_name', prep_name)} ({st.session_state.get('saved_prep_id', prep_id)}).\n\nPlease log in to review exceptions and execute supervisory approval.\n\nAutoReconFlow Compliance Engine"
+                                        msg.attach(MIMEText(body, "plain"))
+
+                                        with smtplib.SMTP(smtp_server, smtp_port) as server:
+                                            server.starttls()
+                                            server.login(sender_email, sender_pwd)
+                                            server.send_message(msg)
+                                        st.success(f"Notification email dispatched to {target_to}.")
+                                except Exception as e_mail:
+                                    st.warning(f"Mail relay note: {str(e_mail)}")
                 with so_col2:
                     if not is_prep_done:
                         st.markdown("##### 🛡️ Stage 2: Reviewer (Supervisory Oversight)")

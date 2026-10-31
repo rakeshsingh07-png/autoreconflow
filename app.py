@@ -178,6 +178,19 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
         return pl.from_pandas(df_pd)
     return pl.DataFrame()
 
+def safe_sum_numeric(df_pd, col_name) -> float:
+    """Robustly converts mixed text/currency representations to float sum."""
+    if df_pd is None or len(df_pd) == 0 or col_name not in df_pd.columns:
+        return 0.0
+    try:
+        cleaned_s = pd.to_numeric(
+            df_pd[col_name].astype(str).str.replace(r'[^0-9.-]', '', regex=True),
+            errors='coerce'
+        ).fillna(0.0)
+        return float(cleaned_s.sum())
+    except Exception:
+        return 0.0
+
 # ==============================================================================
 # --- 1. Pure-Polars Indian GST ITC Reconciler ---
 # ==============================================================================
@@ -185,10 +198,10 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
     pr = df_pr.clone().with_columns([
         pl.col(map_pr['gstin']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_gstin"),
         pl.col(map_pr['inv']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
-        pl.col(map_pr['taxable']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_taxable"),
-        pl.col(map_pr['igst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_igst"),
-        pl.col(map_pr['cgst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_cgst"),
-        pl.col(map_pr['sgst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_sgst")
+        pl.col(map_pr['taxable']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_taxable"),
+        pl.col(map_pr['igst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_igst"),
+        pl.col(map_pr['cgst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_cgst"),
+        pl.col(map_pr['sgst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_pr_sgst")
     ])
     pr = pr.with_columns([
         (pl.col("_gstin") + pl.lit("_") + pl.col("_inv")).alias("_key"),
@@ -198,10 +211,10 @@ def execute_gst_itc_reconciliation_polars(df_pr: pl.DataFrame, df_2b: pl.DataFra
     g2b = df_2b.clone().with_columns([
         pl.col(map_2b['gstin']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_gstin"),
         pl.col(map_2b['inv']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
-        pl.col(map_2b['taxable']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_taxable"),
-        pl.col(map_2b['igst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_igst"),
-        pl.col(map_2b['cgst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_cgst"),
-        pl.col(map_2b['sgst']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_sgst")
+        pl.col(map_2b['taxable']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_taxable"),
+        pl.col(map_2b['igst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_igst"),
+        pl.col(map_2b['cgst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_cgst"),
+        pl.col(map_2b['sgst']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_2b_sgst")
     ])
     g2b = g2b.with_columns([
         (pl.col("_gstin") + pl.lit("_") + pl.col("_inv")).alias("_key"),
@@ -261,16 +274,16 @@ def execute_two_sided_vat_rcm_polars(df_books: pl.DataFrame, df_ext: pl.DataFram
     bks = df_books.clone().with_columns([
         pl.col(map_books['vat_id']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_tax_id"),
         pl.col(map_books['invoice']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
-        pl.col(map_books['net_amt']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_bks_net"),
-        pl.col(map_books['self_assessed']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_bks_self_tax") if map_books.get('self_assessed') else pl.lit(0.0).alias("_bks_self_tax")
+        pl.col(map_books['net_amt']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_bks_net"),
+        pl.col(map_books['self_assessed']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_bks_self_tax") if map_books.get('self_assessed') else pl.lit(0.0).alias("_bks_self_tax")
     ])
     bks = bks.with_columns((pl.col("_tax_id") + pl.lit("_") + pl.col("_inv")).alias("_key"))
 
     ext = df_ext.clone().with_columns([
         pl.col(map_ext['vat_id']).cast(pl.Utf8).map_elements(clean_tax_id, return_dtype=pl.Utf8).alias("_tax_id"),
         pl.col(map_ext['invoice']).cast(pl.Utf8).map_elements(normalize_invoice_no, return_dtype=pl.Utf8).alias("_inv"),
-        pl.col(map_ext['net_amt']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_ext_net"),
-        pl.col(map_ext['charged_vat']).cast(pl.Float64, strict=False).fill_null(0.0).alias("_ext_charged_tax")
+        pl.col(map_ext['net_amt']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_ext_net"),
+        pl.col(map_ext['charged_vat']).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_ext_charged_tax")
     ])
     ext = ext.with_columns((pl.col("_tax_id") + pl.lit("_") + pl.col("_inv")).alias("_key"))
 
@@ -352,10 +365,10 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             cell.fill = navy_header
             cell.font = white_bold
             
-        b1_tax = float(df_b1['Claimable_ITC_Total'].sum()) if len(df_b1) > 0 and 'Claimable_ITC_Total' in df_b1.columns else 0.0
-        b2_tax = float(df_b2['Available_Unclaimed_ITC'].sum()) if len(df_b2) > 0 and 'Available_Unclaimed_ITC' in df_b2.columns else 0.0
-        b3_tax = float(df_b3['Risk_Amount_ITC'].sum()) if len(df_b3) > 0 and 'Risk_Amount_ITC' in df_b3.columns else 0.0
-        b4_tax = float(df_b4['Tax_Variance'].sum()) if len(df_b4) > 0 and 'Tax_Variance' in df_b4.columns else 0.0
+        b1_tax = safe_sum_numeric(df_b1, 'Claimable_ITC_Total')
+        b2_tax = safe_sum_numeric(df_b2, 'Available_Unclaimed_ITC')
+        b3_tax = safe_sum_numeric(df_b3, 'Risk_Amount_ITC')
+        b4_tax = safe_sum_numeric(df_b4, 'Tax_Variance')
         
         rows = [
             ("Bucket 1: Direct Match (Eligible ITC)", len(df_b1), b1_tax, "Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)"),
@@ -1255,6 +1268,18 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     st.error(f"Reconciliation error: {str(e)}")
                     st.stop()
 
+            # Clean and sum total inputs safely without string concatenation errors
+            safe_ledger_sum = float(
+                df_a.select(
+                    pl.col(amt_a).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).sum()
+                ).item()
+            )
+            safe_bank_sum = float(
+                df_b.select(
+                    pl.col(amt_b).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).sum()
+                ).item()
+            )
+
             st.session_state["recon_results"] = {
                 "matched_pd": matched.to_pandas(),
                 "fuzzy_pd": fuzzy.to_pandas(),
@@ -1268,8 +1293,8 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "as_at_date": str(recon_as_at_date),
                 "amt_col_a": amt_a,
                 "amt_col_b": amt_b,
-                "input_total_ledger": float(df_a[amt_a].cast(pl.Float64, strict=False).fill_null(0.0).sum()),
-                "input_total_bank": float(df_b[amt_b].cast(pl.Float64, strict=False).fill_null(0.0).sum())
+                "input_total_ledger": safe_ledger_sum,
+                "input_total_bank": safe_bank_sum
             }
             st.session_state["preparer_completed"] = False
             st.session_state["reviewer_approved"] = False
@@ -1289,21 +1314,21 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             un_a_pd = res["un_a_pd"]
             un_b_pd = res["un_b_pd"]
 
-            # CONTROL 3: ROBUST PIPELINE BALANCING
+            # CONTROL 3: ROBUST PIPELINE BALANCING (NUMERIC-SAFE)
             st.markdown("#### ⚖️ Executive Reconciliation & Pipeline Completeness Summary")
             amt_col = res["amt_col_a"]
             input_ledger_amt = res["input_total_ledger"]
             
-            cleared_amt = float(matched_pd[amt_col].sum()) if len(matched_pd) > 0 and amt_col in matched_pd.columns else 0.0
-            open_exceptions_amt = float(un_a_pd[amt_col].sum()) if len(un_a_pd) > 0 and amt_col in un_a_pd.columns else 0.0
+            cleared_amt = safe_sum_numeric(matched_pd, amt_col)
+            open_exceptions_amt = safe_sum_numeric(un_a_pd, amt_col)
             
             if len(fuzzy_pd) > 0:
                 if "Amount_Source_A" in fuzzy_pd.columns:
-                    variance_amt = float(fuzzy_pd["Amount_Source_A"].sum())
+                    variance_amt = safe_sum_numeric(fuzzy_pd, "Amount_Source_A")
                 elif amt_col in fuzzy_pd.columns:
-                    variance_amt = float(fuzzy_pd[amt_col].sum())
+                    variance_amt = safe_sum_numeric(fuzzy_pd, amt_col)
                 elif f"{amt_col}_A" in fuzzy_pd.columns:
-                    variance_amt = float(fuzzy_pd[f"{amt_col}_A"].sum())
+                    variance_amt = safe_sum_numeric(fuzzy_pd, f"{amt_col}_A")
                 else:
                     variance_amt = 0.0
             else:

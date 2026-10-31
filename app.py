@@ -168,13 +168,13 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
     filename = uploaded_file.name.lower()
     uploaded_file.seek(0)
     try:
-        if filename.endswith(".csv","text"):
+        if filename.endswith(".csv",".txt"):
             return pl.read_csv(uploaded_file, ignore_errors=True)
         elif filename.endswith((".xlsx", ".xls")):
             return pl.read_excel(uploaded_file)
     except Exception:
         uploaded_file.seek(0)
-        df_pd = pd.read_csv(uploaded_file) if filename.endswith(".csv","text") else pd.read_excel(uploaded_file)
+        df_pd = pd.read_csv(uploaded_file) if filename.endswith(".csv",".txt") else pd.read_excel(uploaded_file)
         return pl.from_pandas(df_pd)
     return pl.DataFrame()
 

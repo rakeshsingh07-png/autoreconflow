@@ -165,18 +165,36 @@ def clean_tax_id(val):
     return str(val).strip().upper().replace(" ", "").replace("-", "")
 
 def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
+    """Robust reader supporting Excel, CSV, and text files with varying delimiters."""
     filename = uploaded_file.name.lower()
     uploaded_file.seek(0)
+    raw_content = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    # 1. Excel files
+    if filename.endswith((".xlsx", ".xls")):
+        try:
+            return pl.read_excel(io.BytesIO(raw_content))
+        except Exception:
+            df_pd = pd.read_excel(io.BytesIO(raw_content))
+            return pl.from_pandas(df_pd)
+
+    # 2. CSV / TXT files
     try:
-        if filename.endswith((".csv", ".txt")):
-            return pl.read_csv(uploaded_file, ignore_errors=True)
-        elif filename.endswith((".xlsx", ".xls")):
-            return pl.read_excel(uploaded_file)
+        # Polars auto-separator read
+        df = pl.read_csv(io.BytesIO(raw_content), ignore_errors=True, truncate_ragged_lines=True)
+        # If incorrectly parsed into 1 column containing commas, fall back to pandas
+        if len(df.columns) == 1 and ("," in str(df.columns[0]) or "\t" in str(df.columns[0])):
+            df_pd = pd.read_csv(io.BytesIO(raw_content), sep=None, engine='python')
+            return pl.from_pandas(df_pd)
+        return df
     except Exception:
-        uploaded_file.seek(0)
-        df_pd = pd.read_csv(uploaded_file) if filename.endswith((".csv", ".txt")) else pd.read_excel(uploaded_file)
-        return pl.from_pandas(df_pd)
-    return pl.DataFrame()
+        try:
+            df_pd = pd.read_csv(io.BytesIO(raw_content), sep=None, engine='python')
+            return pl.from_pandas(df_pd)
+        except Exception:
+            df_pd = pd.read_csv(io.StringIO(raw_content.decode('utf-8', errors='ignore')), sep=",")
+            return pl.from_pandas(df_pd)
 
 def safe_sum_numeric(df_pd, col_name) -> float:
     """Robustly converts mixed text/currency representations to float sum."""

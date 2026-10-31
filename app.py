@@ -1095,52 +1095,49 @@ with tab_gst:
             ]
 
            st.markdown("##### 📋 Statutory Audit & Action Breakdown")
-            df_summary_display = pd.DataFrame(summary_rows)
+            
+            status_colors = {
+                "Eligible to Claim": ("#dcfce7", "#15803d", "✓"),
+                "Verify & Book": ("#fef9c3", "#a16207", "⚠"),
+                "ITC Blocked": ("#fee2e2", "#b91c1c", "🚫"),
+                "Requires Review": ("#f1f5f9", "#475569", "🔍")
+            }
 
-            st.dataframe(
-                df_summary_display,
-                column_config={
-                    "Statutory Bucket": st.column_config.TextColumn(
-                        "Statutory Bucket",
-                        help="GSTR-3B compliance classification bucket",
-                        width=180
-                    ),
-                    "Invoices": st.column_config.NumberColumn(
-                        "Invoices",
-                        help="Count of affected documents",
-                        format="%d",
-                        width=85
-                    ),
-                    "Tax Impact": st.column_config.TextColumn(
-                        "Tax Impact",
-                        help="Net ITC tax impact in INR",
-                        width=130
-                    ),
-                    "Audit Status": st.column_config.SelectboxColumn(
-                        "Audit Status",
-                        help="Statutory claim status",
-                        width=140,
-                        options=[
-                            "Eligible to Claim",
-                            "Verify & Book",
-                            "ITC Blocked",
-                            "Requires Review"
-                        ]
-                    ),
-                    "Meaning": st.column_config.TextColumn(
-                        "Meaning",
-                        help="Technical root-cause diagnosis",
-                        width=280
-                    ),
-                    "Required Statutory Action": st.column_config.TextColumn(
-                        "Required Statutory Action",
-                        help="Mandatory action under CGST Sec 16(2)(aa) & Rule 36(4)",
-                        width=320
-                    ),
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+            rows_html = ""
+            for r in summary_rows:
+                bg, text_col, icon = status_colors.get(r['Audit Status'], ("#f1f5f9", "#334155", ""))
+                badge = f'<span style="background-color: {bg}; color: {text_col}; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px;">{icon} {r["Audit Status"]}</span>'
+                rows_html += f"""
+                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12.5px;">
+                    <td style="padding: 10px 12px; font-weight: 600; color: #1B365D;">{r['Statutory Bucket']}</td>
+                    <td style="padding: 10px 12px; text-align: right; font-weight: 600;">{r['Invoices']:,}</td>
+                    <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px;">{r['Tax Impact']}</td>
+                    <td style="padding: 10px 12px; text-align: center;">{badge}</td>
+                    <td style="padding: 10px 12px; color: #475569;">{r['Meaning']}</td>
+                    <td style="padding: 10px 12px; color: #1e293b; font-size: 12px;">{r['Required Statutory Action']}</td>
+                </tr>
+                """
+
+            table_card_html = f"""
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="background-color: #1B365D; color: #ffffff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                            <th style="padding: 10px 12px;">Statutory Bucket</th>
+                            <th style="padding: 10px 12px; text-align: right;">Invoices</th>
+                            <th style="padding: 10px 12px; text-align: right;">Tax Impact</th>
+                            <th style="padding: 10px 12px; text-align: center;">Audit Status</th>
+                            <th style="padding: 10px 12px;">Meaning</th>
+                            <th style="padding: 10px 12px;">Required Statutory Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+            </div>
+            """
+            st.markdown(table_card_html, unsafe_allow_html=True)
 
             gst_meta = {
                 "source_a_fingerprint": st.session_state.get("hash_gst_pr", "N/A"),

@@ -465,8 +465,8 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             ("Source A Ingest SHA-256:", metadata.get("source_a_fingerprint", "N/A")),
             ("Source B Ingest SHA-256:", metadata.get("source_b_fingerprint", "N/A")),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
-            ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Deterministic Exact -> Discrepancy -> Open Exceptions)"),
-            ("Control Assertion Standard:", "PCAOB AS 2201 / SOX 404 Completeness & Accuracy Assurance")
+            ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Exact -> Fuzzy Heuristic -> Aging Exceptions)"),
+            ("Control Assertion Standard:", "PCAOB AS 2201 / SOX 404 Completeness & Aging Assurance")
         ]
         
         for idx, (label, val) in enumerate(meta_rows, start=4):
@@ -484,9 +484,9 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
 
         summary_rows = [
             ("Tier-1 Deterministic Matches (Subledger to External)", len(m_copy), "Cleared"),
-            ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", len(f_copy), "Requires Supervisory Review" if len(f_copy) > 0 else "Cleared"),
-            ("Source A Exceptions (Ledger Missing in External)", len(a_copy), "Action Required" if len(a_copy) > 0 else "Cleared"),
-            ("Source B Exceptions (External Missing in Ledger)", len(b_copy), "Action Required" if len(b_copy) > 0 else "Cleared"),
+            ("Tier-2 Discrepancy & Threshold Review (Materiality Tracking)", len(f_copy), "Supervisory Review" if len(f_copy) > 0 else "Cleared"),
+            ("Source A Exceptions (Ledger Missing in External)", len(a_copy), "Action Required (See Aging)" if len(a_copy) > 0 else "Cleared"),
+            ("Source B Exceptions (External Missing in Ledger)", len(b_copy), "Action Required (See Aging)" if len(b_copy) > 0 else "Cleared"),
         ]
 
         for r_idx, r_data in enumerate(summary_rows, start=header_row+1):
@@ -552,7 +552,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     return output.getvalue()
 
 # ==============================================================================
-# --- PDF Executive Sign-Off Certificate Engine (Absolute Alignment Fix) ---
+# --- PDF Executive Sign-Off Certificate Engine ---
 # ==============================================================================
 def sanitize_pdf_text(text: str) -> str:
     if not text:
@@ -704,7 +704,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.ln(7)
 
-    # --- Four-Eyes Internal Control Attestation (Clean Dual-Box Layout) ---
+    # Clean Dual-Box Four-Eyes Layout
     pdf.set_font('Helvetica', 'B', 10.5)
     pdf.set_text_color(27, 54, 93)
     pdf.cell(0, 6, 'Four-Eyes Internal Control Attestation', ln=True)
@@ -714,7 +714,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     box_w = 92
     box_h = 36
 
-    # 1. PREPARER BOX (Left: X = 10 to 102)
+    # 1. PREPARER BOX
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(203, 213, 225)
     pdf.rect(10, box_y, box_w, box_h, 'DF')
@@ -744,7 +744,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
         pdf.set_text_color(180, 40, 40)
         pdf.cell(84, 5, '[UNSIGNED]', 0, 0)
 
-    # 2. REVIEWER BOX (Right: X = 108 to 200)
+    # 2. REVIEWER BOX
     pdf.rect(108, box_y, box_w, box_h, 'DF')
 
     pdf.set_xy(112, box_y + 3)
@@ -771,7 +771,6 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
         pdf.set_text_color(180, 40, 40)
     pdf.cell(84, 5, f"[SUPERVISORY APPROVAL: {verdict.upper()}]", 0, 0)
 
-    # 3. ADVANCE Y BEYOND BOTH BOXES
     pdf.set_xy(10, box_y + box_h + 5)
 
     pdf.set_font('Helvetica', 'B', 8.5)
@@ -803,127 +802,6 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     return result_bytes
 
 # ==============================================================================
-# --- Pure Python Zero-Token Email Dispatcher ---
-# ==============================================================================
-def send_workflow_email(smtp_settings, recipient_email, subject, plain_text, html_content=None):
-    if not smtp_settings.get("enabled", False):
-        return True, "Simulation mode active (SMTP disabled)."
-    
-    server_host = smtp_settings.get("host", "smtp.gmail.com").strip()
-    server_port = int(smtp_settings.get("port", 465))
-    sender_user = smtp_settings.get("user", "").strip()
-    sender_pass = smtp_settings.get("password", "").strip()
-
-    if not sender_user or not sender_pass:
-        return False, "SMTP sender username or password is missing."
-    if not recipient_email or "@" not in recipient_email:
-        return False, f"Invalid recipient email address: '{recipient_email}'"
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg['From'] = f"AutoReconFlow Audit <{sender_user}>"
-        msg['To'] = recipient_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(plain_text, 'plain'))
-        if html_content:
-            msg.attach(MIMEText(html_content, 'html'))
-
-        if server_port == 465:
-            with smtplib.SMTP_SSL(server_host, server_port, timeout=12) as server:
-                server.login(sender_user, sender_pass)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(server_host, server_port, timeout=12) as server:
-                server.starttls()
-                server.login(sender_user, sender_pass)
-                server.send_message(msg)
-        return True, "Email successfully delivered."
-    except Exception as e:
-        return False, f"SMTP Dispatch Error: {str(e)}"
-
-def build_html_email(title, header_desc, details_dict, action_button_url="https://www.autoreconflow.com"):
-    rows_html = "".join([
-        f"<tr><td style='padding:9px;font-weight:600;color:#1B365D;width:35%;border-bottom:1px solid #E2E8F0;'>{k}</td>"
-        f"<td style='padding:9px;color:#334155;border-bottom:1px solid #E2E8F0;'>{v}</td></tr>"
-        for k, v in details_dict.items()
-    ])
-    return f"""
-    <html>
-      <body style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;margin:0;padding:24px;background-color:#F8FAFC;">
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff;border:1px solid #CBD5E1;border-radius:8px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
-          <tr>
-            <td bgcolor="#1B365D" style="padding:20px 28px;color:#ffffff;">
-              <h2 style="margin:0;font-size:19px;font-weight:700;">⚖️ AutoReconFlow | Financial Governance Notice</h2>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:28px;">
-              <h3 style="margin-top:0;color:#0F172A;font-size:17px;">{title}</h3>
-              <p style="color:#475569;font-size:14px;line-height:1.6;">{header_desc}</p>
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;border-collapse:collapse;font-size:13px;">
-                {rows_html}
-              </table>
-              <div style="text-align:center;margin-top:28px;">
-                <a href="{action_button_url}" style="background-color:#1B365D;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:5px;font-weight:600;display:inline-block;box-shadow:0 2px 6px rgba(27,54,93,0.3);">Open Workpaper & Verify Record</a>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-    """
-
-def build_vendor_gst_notice(buyer_name, buyer_gstin, supplier_name, missing_invoices_df):
-    rows = ""
-    total_blocked_tax = 0.0
-    for _, r in missing_invoices_df.iterrows():
-        inv_no = r.get('_inv_PR', r.get('Invoice_Number', 'N/A'))
-        dt = r.get('Invoice_Date', 'N/A')
-        taxable = float(r.get('Taxable_Value', 0.0))
-        tax = float(r.get('Risk_Amount_ITC', r.get('_pr_tax_total', 0.0)))
-        total_blocked_tax += tax
-        rows += f"""
-        <tr>
-            <td style='padding:8px;border:1px solid #CBD5E1;'>{inv_no}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;'>{dt}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;'>₹{taxable:,.2f}</td>
-            <td style='padding:8px;border:1px solid #CBD5E1;text-align:right;font-weight:bold;color:#b91c1c;'>₹{tax:,.2f}</td>
-        </tr>
-        """
-    html = f"""
-    <html>
-      <body style="font-family:'Segoe UI',sans-serif;color:#1e293b;padding:20px;background:#f8fafc;">
-        <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:24px;max-width:650px;margin:auto;">
-          <h3 style="color:#1b365d;margin-top:0;">Statutory Notice: Unfiled Invoices in GSTR-2B [Section 16(2)(aa)]</h3>
-          <p>Dear Accounts Team at <strong>{supplier_name}</strong>,</p>
-          <p>During our monthly GST reconciliation for GSTR-3B filing, the following invoices recorded in our purchase books <strong>have not been reflected in our auto-drafted GSTR-2B</strong> statement:</p>
-          <table width="100%" style="border-collapse:collapse;font-size:13px;margin:16px 0;">
-            <thead>
-              <tr style="background:#1b365d;color:#fff;">
-                <th style="padding:8px;border:1px solid #1b365d;">Invoice No</th>
-                <th style="padding:8px;border:1px solid #1b365d;">Date</th>
-                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Taxable Value</th>
-                <th style="padding:8px;border:1px solid #1b365d;text-align:right;">Blocked Tax</th>
-              </tr>
-            </thead>
-            <tbody>{rows}</tbody>
-            <tfoot>
-              <tr style="background:#f1f5f9;font-weight:bold;">
-                <td colspan="3" style="padding:8px;border:1px solid #cbd5e1;text-align:right;">Total Blocked ITC:</td>
-                <td style="padding:8px;border:1px solid #cbd5e1;text-align:right;color:#b91c1c;">₹{total_blocked_tax:,.2f}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <p style="font-size:13px;line-height:1.5;">Under <strong>Section 16(2)(aa) of the CGST Act</strong>, we cannot legally claim this Input Tax Credit until these invoices are reported in your GSTR-1/IFF. Please ensure immediate filing to prevent payment withholding or interest debit notes under Section 50.</p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;" />
-          <p style="font-size:12px;color:#64748b;margin:0;">Issued by: <strong>{buyer_name}</strong> | Identification: {buyer_gstin}</p>
-        </div>
-      </body>
-    </html>
-    """
-    return html, total_blocked_tax
-
-# ==============================================================================
 # --- SIDEBAR CONTROLS ---
 # ==============================================================================
 st.sidebar.markdown("### ⚡ AutoReconFlow")
@@ -937,49 +815,7 @@ company_address = st.sidebar.text_area("Registered Office Address", value="Tower
 company_uid = st.sidebar.text_input("Tax / Entity ID (GSTIN / VAT / CIN)", value="CIN: U72200HR2026PTC109823", key="cfg_comp_uid")
 st.sidebar.divider()
 
-with st.sidebar.expander("📬 Automated Email Alert Settings", expanded=False):
-    st.caption("Zero-token SMTP engine. Compatible with Gmail App Passwords, Outlook, and Brevo.")
-    enable_smtp = st.checkbox("Enable Live Email Dispatch", value=False, key="smtp_enabled")
-    
-    default_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com") if hasattr(st, "secrets") else "smtp.gmail.com"
-    default_port = str(st.secrets.get("SMTP_PORT", "465")) if hasattr(st, "secrets") else "465"
-    default_user = st.secrets.get("SMTP_USER", "") if hasattr(st, "secrets") else ""
-    default_pass = st.secrets.get("SMTP_PASSWORD", "") if hasattr(st, "secrets") else ""
-
-    smtp_host = st.text_input("SMTP Server Host", value=default_host, key="smtp_host")
-    smtp_port = st.text_input("SMTP Port (465=SSL / 587=TLS)", value=default_port, key="smtp_port")
-    smtp_user = st.text_input("Sender Email Address", value=default_user, placeholder="yourname@gmail.com", key="smtp_user")
-    smtp_pass = st.text_input("Sender App Password", value=default_pass, type="password", placeholder="16-character app password", key="smtp_pass")
-
-    smtp_cfg = {
-        "enabled": enable_smtp,
-        "host": smtp_host,
-        "port": smtp_port,
-        "user": smtp_user,
-        "password": smtp_pass
-    }
-
-    test_target = st.text_input("Test Target Email", value=smtp_user or "", placeholder="recipient@domain.com", key="smtp_test_target")
-    if st.button("🧪 Send Test Ping Email", use_container_width=True):
-        if not enable_smtp:
-            st.warning("Please check 'Enable Live Email Dispatch' first.")
-        else:
-            with st.spinner("Connecting to SMTP server..."):
-                ok, feedback = send_workflow_email(
-                    smtp_cfg, 
-                    test_target, 
-                    "AutoReconFlow - SMTP Connection Verified", 
-                    "This confirms your AutoReconFlow email trigger configuration is working properly.",
-                    build_html_email("SMTP Connection Verified", "Your AutoReconFlow email alerts are operational.", {"Status": "Operational", "Tested At": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")})
-                )
-                if ok:
-                    st.success("✅ Test email dispatched successfully! Check your inbox.")
-                else:
-                    st.error(f"❌ {feedback}")
-
-st.sidebar.divider()
-
-with st.sidebar.expander("🔑 License Activation & Verification", expanded=True):
+with st.sidebar.expander("🔑 License Activation & Verification", expanded=False):
     user_email_input = st.text_input("Registered Email", placeholder="buyer@clientdomain.com", key="lic_user_email")
     user_key_input = st.text_input("License Key", placeholder="ARF-PRAC-XXXX-XXXX-XXXX", key="lic_user_key")
     if user_email_input and user_key_input:
@@ -991,10 +827,7 @@ with st.sidebar.expander("🔑 License Activation & Verification", expanded=True
         else:
             st.error("❌ Invalid License Key or Email Mismatch.")
             st.session_state["licensed"] = False
-    else:
-        st.caption("Enter credentials to unlock full audit deliverables.")
 
-st.sidebar.divider()
 st.sidebar.markdown("### 💼 Commercial Licensing")
 st.sidebar.markdown(
     """
@@ -1007,7 +840,7 @@ st.sidebar.link_button("💳 Purchase Commercial License", "https://rzp.io/rzp/G
 st.sidebar.caption("Pure Polars Engine • 0 Token Costs • 100% On-Premise Data Privacy")
 
 # ==============================================================================
-# --- MAIN APPLICATION WORKSPACE & STATUTORY NAVIGATION TABS ---
+# --- MAIN APPLICATION WORKSPACE ---
 # ==============================================================================
 st.markdown("""
 <div class="brand-hero">
@@ -1023,7 +856,7 @@ tab_gst, tab_vat, tab_universal = st.tabs([
 ])
 
 # ==============================================================================
-# --- TAB 1: INDIAN GST ITC (PURCHASE REGISTER VS. GSTR-2B) ---
+# --- TAB 1: INDIAN GST ITC ---
 # ==============================================================================
 with tab_gst:
     st.markdown("""
@@ -1148,29 +981,11 @@ with tab_gst:
             ])
             with t1: st.dataframe(b1, use_container_width=True)
             with t2: st.dataframe(b2, use_container_width=True)
-            with t3: 
-                st.dataframe(b3, use_container_width=True)
-                st.warning("⚠️ Suppliers listed above have not filed GSTR-1. Claiming this ITC risks automated scrutiny notices under Section 16(2)(aa).")
-                
-                if len(b3) > 0:
-                    st.markdown("##### ✉️ Automated Vendor Notice Trigger Desk")
-                    supp_col_name = "Supplier_Name" if "Supplier_Name" in b3.columns else (cols_pr[1] if len(cols_pr) > 1 else None)
-                    unique_suppliers = b3[supp_col_name].dropna().unique().tolist() if supp_col_name and supp_col_name in b3.columns else []
-                    if unique_suppliers:
-                        sel_supp = st.selectbox("Select Non-Filing Supplier to Issue Notice:", unique_suppliers, key="sel_supp_gst")
-                        supp_missing = b3[b3[supp_col_name] == sel_supp]
-                        col_e1, col_e2 = st.columns([2, 1])
-                        with col_e1:
-                            target_supp_email = st.text_input("Supplier Accounts Email", placeholder="accounts@supplierdomain.com", key="supp_email_input")
-                        notice_html, blocked_sum = build_vendor_gst_notice(company_name, company_uid, sel_supp, supp_missing)
-                        with st.expander(f"👁️ Preview Statutory Notice Draft (Blocked Tax: ₹{blocked_sum:,.2f})"):
-                            st.components.v1.html(notice_html, height=340, scrolling=True)
-                        if st.button("📤 Send Statutory GST Non-Filing Notice", type="primary", key="btn_send_supp_gst"):
-                            st.info("Notice logged into audit trail. Configure SMTP in sidebar to dispatch live email.")
+            with t3: st.dataframe(b3, use_container_width=True)
             with t4: st.dataframe(b4, use_container_width=True)
 
 # ==============================================================================
-# --- TAB 2: INTERNATIONAL TWO-SIDED VAT & REVERSE CHARGE (RCM) ---
+# --- TAB 2: INTERNATIONAL VAT & RCM ---
 # ==============================================================================
 with tab_vat:
     st.markdown("""
@@ -1178,8 +993,7 @@ with tab_vat:
         <strong>🏛️ Statutory Compliance Framework (International Cross-Border VAT):</strong><br>
         • <strong>Two-Sided Reconciliation</strong>: Matches Internal Purchase Books (Source A) against Overseas Supplier Invoices / Statements (Source B).<br>
         • <strong>UK VAT Act 1994, Section 8 & HMRC MTD</strong>: Mandates self-assessment of output tax on B2B cross-border services while allowing qualifying input tax deduction.<br>
-        • <strong>EU VAT Directive 2006/112/EC (Article 196)</strong>: Reverse Charge mechanism on cross-border transactions (Net Tax Payable = 0.00).<br>
-        • <strong>Statutory Risk Flag</strong>: Flags instances where foreign suppliers erroneously charge foreign VAT on B2B reverse-charge transactions.
+        • <strong>EU VAT Directive 2006/112/EC (Article 196)</strong>: Reverse Charge mechanism on cross-border transactions (Net Tax Payable = 0.00).
     </div>
     """, unsafe_allow_html=True)
 
@@ -1223,7 +1037,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
     if df_books_vat is not None and df_ext_vat is not None:
         st.success(f"✓ Source A Books ({len(df_books_vat)} rows) and Source B External ({len(df_ext_vat)} rows) loaded via Polars.")
 
-        with st.expander("⚙️ VAT Configuration & Two-Sided Column Mapping", expanded=True):
+        with st.expander("⚙️ VAT Configuration & Column Mapping", expanded=True):
             r1, r2, r3 = st.columns(3)
             with r1:
                 statutory_vat = st.number_input("Domestic Statutory VAT Rate (%)", value=20.0, step=0.5, key="stat_vat_rate")
@@ -1294,12 +1108,10 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
             with vt1: st.dataframe(b1_v, use_container_width=True)
             with vt2: st.dataframe(b2_v, use_container_width=True)
             with vt3: st.dataframe(b3_v, use_container_width=True)
-            with vt4: 
-                st.dataframe(b4_v, use_container_width=True)
-                st.warning("⚠️ Any overseas vendor listed in Bucket 4 who charged domestic VAT on an RCM service must be issued an amendment request for a zero-rated invoice.")
+            with vt4: st.dataframe(b4_v, use_container_width=True)
 
 # ==============================================================================
-# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER (BIG 4 CONTROLS EMBEDDED) ---
+# --- TAB 3: UNIVERSAL BANK VS. GENERAL LEDGER ---
 # ==============================================================================
 with tab_universal:
     st.markdown("""
@@ -1394,7 +1206,6 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             map_a = {"id": id_a, "party": party_a, "amt": amt_a}
             map_b = {"id": id_b, "party": party_b, "amt": amt_b}
 
-            # CONTROL 2: CHANGE MANAGEMENT AUDIT LOG
             st.session_state["execution_metadata"] = {
                 "execution_id": f"REC-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
                 "timestamp_utc": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -1449,7 +1260,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             un_a_pd = res["un_a_pd"]
             un_b_pd = res["un_b_pd"]
 
-            # CONTROL 3: PIPELINE COMPLETENESS SUMMARY
+            # CONTROL 3: ROBUST PIPELINE BALANCING
             st.markdown("#### ⚖️ Executive Reconciliation & Pipeline Completeness Summary")
             amt_col = res["amt_col_a"]
             input_ledger_amt = res["input_total_ledger"]
@@ -1457,7 +1268,6 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             cleared_amt = float(matched_pd[amt_col].sum()) if len(matched_pd) > 0 and amt_col in matched_pd.columns else 0.0
             open_exceptions_amt = float(un_a_pd[amt_col].sum()) if len(un_a_pd) > 0 and amt_col in un_a_pd.columns else 0.0
             
-            # Robust extraction of Tier-2 Fuzzy volume
             if len(fuzzy_pd) > 0:
                 if "Amount_Source_A" in fuzzy_pd.columns:
                     variance_amt = float(fuzzy_pd["Amount_Source_A"].sum())
@@ -1486,6 +1296,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 st.error("🚨 Control Exception: Data Pipeline Asymmetry Detected. Ingested cash volume differs from reconciled components.")
             else:
                 st.success("✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Fuzzy Candidates + Open Exceptions (0.00 Variance).")
+
             st.markdown("#### 📊 Internal Control Transaction Metrics")
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Tier-1 Exact Matches", f"{len(matched_pd):,} records")
@@ -1495,18 +1306,9 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
 
             is_prep_done = st.session_state.get("preparer_completed", False)
             is_rev_approved = st.session_state.get("reviewer_approved", False)
-            if "audit_query_thread" not in st.session_state:
-                st.session_state["audit_query_thread"] = {
-                    "status": "NONE",
-                    "item_id": "",
-                    "reviewer_query": "",
-                    "reviewer_query_time": "",
-                    "preparer_reply": "",
-                    "preparer_reply_time": ""
-                }
             query_state = st.session_state["audit_query_thread"]
 
-            # CONTROL 4: FOUR-EYES GOVERNANCE SIGN-OFF (DUAL-SIGNATURE SOD)
+            # CONTROL 4: FOUR-EYES GOVERNANCE SIGN-OFF
             with st.expander("✍️ Four-Eyes Internal Governance Sign-Off & Approval Workflow", expanded=True):
                 so_col1, so_col2 = st.columns(2)
                 now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -1569,57 +1371,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         elif is_rev_approved:
                             st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
 
-            if is_prep_done and not is_rev_approved:
-                st.markdown("#### 💬 Supervisory Exception Query & Clarification Thread")
-                disputed_items = []
-                for col_id_candidate in ["Invoice_ID", "Transaction_Ref", "col_0", "Document_ID"]:
-                    if col_id_candidate in un_b_pd.columns: disputed_items.extend(un_b_pd[col_id_candidate].astype(str).tolist())
-                    if col_id_candidate in fuzzy_pd.columns: disputed_items.extend(fuzzy_pd[col_id_candidate].astype(str).tolist())
-                    if col_id_candidate in un_a_pd.columns: disputed_items.extend(un_a_pd[col_id_candidate].astype(str).tolist())
-                disputed_items = sorted(list(set([x for x in disputed_items if x])))
-
-                if query_state["status"] in ["NONE", "RESUBMITTED"]:
-                    with st.container():
-                        st.info("💡 Reviewer Option: Raise a specific transaction query to send back to the Preparer.")
-                        sel_item = st.selectbox("Select Line Item Requiring Clarification:", options=disputed_items, key="sel_query_item")
-                        q_text = st.text_area("Reviewer Query / Required Explanation:", placeholder="e.g., Variance observed. Please provide bank swift advice.", key="rev_query_input")
-                        if st.button("❓ Send Query Back to Preparer for Clarification", type="secondary", key="btn_send_query"):
-                            if q_text.strip():
-                                query_state["status"] = "PENDING_CLARIFICATION"
-                                query_state["item_id"] = sel_item
-                                query_state["reviewer_query"] = q_text
-                                query_state["reviewer_query_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-                                st.rerun()
-
-                elif query_state["status"] == "PENDING_CLARIFICATION":
-                    st.warning(f"⚠️ Action Required by Preparer: Reviewer queried item [{query_state['item_id']}]")
-                    st.markdown(f"**Reviewer Observation ({query_state['reviewer_query_time']}):**")
-                    st.markdown(f"> *\"{query_state['reviewer_query']}\"*")
-                    prep_reply = st.text_area("Preparer Explanation / Response:", key="prep_reply_input")
-                    if st.button("📤 Submit Explanation Back to Reviewer", type="primary", key="btn_submit_reply"):
-                        if prep_reply.strip():
-                            query_state["status"] = "RESUBMITTED"
-                            query_state["preparer_reply"] = prep_reply
-                            query_state["preparer_reply_time"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-                            st.rerun()
-
-                elif query_state["status"] == "RESUBMITTED":
-                    st.success(f"📥 Preparer Explanation Received for [{query_state['item_id']}].")
-                    st.markdown(f"**Reviewer Query:** *\"{query_state['reviewer_query']}\"*")
-                    st.markdown(f"**Preparer Explanation ({query_state['preparer_reply_time']}):**")
-                    st.markdown(f"> **\"{query_state['preparer_reply']}\"**")
-                    if st.button("🛡️ Accept Explanation & Formally Approve Workpaper", type="primary", key="btn_accept_query_apprv"):
-                        st.session_state["reviewer_approved"] = True
-                        query_state["status"] = "APPROVED"
-                        st.session_state["saved_rev_name"] = rev_name
-                        st.session_state["saved_rev_title"] = rev_title
-                        st.session_state["saved_rev_date"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-                        st.session_state["saved_rev_verdict"] = "Approved with Clarifications Noted"
-                        st.session_state["saved_wp_ref"] = wp_ref
-                        st.session_state["saved_audit_notes"] = audit_notes
-                        st.rerun()
-
-            # --- CONTROL 5: FAIL-SAFE METADATA EVIDENCE EXPORTS ---
+            # CONTROL 5: DELIVERABLES HUB
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             
             if is_rev_approved:
@@ -1669,7 +1421,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 except Exception as e_xlsx:
                     st.error(f"Excel generation note: {str(e_xlsx)}")
 
-                # PDF Attestation Certificate Export (Clean Alignment)
+                # PDF Certificate Export
                 try:
                     safe_logo_bytes = None
                     if "uploaded_logo" in locals() and uploaded_logo is not None:
@@ -1709,54 +1461,23 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             with tab1:
                 if len(matched_pd) > 0:
                     st.dataframe(matched_pd, use_container_width=True)
-                    st.download_button(
-                        label="📥 Download Deterministic Matches (CSV)",
-                        data=res["matched_pl"].write_csv(),
-                        file_name="deterministic_matches.csv",
-                        mime="text/csv",
-                        key="btn_matched_csv"
-                    )
                 else:
                     st.info("No exact matches identified under current settings.")
 
             with tab2:
                 if len(fuzzy_pd) > 0:
-                    st.markdown("**Discrepancies Requiring Review (Levenshtein / Jaro-Winkler Variance)**")
                     st.dataframe(fuzzy_pd, use_container_width=True)
-                    st.download_button(
-                        label="📥 Download Discrepancy Candidates (CSV)",
-                        data=res["fuzzy_pl"].write_csv(),
-                        file_name="fuzzy_review_candidates.csv",
-                        mime="text/csv",
-                        key="btn_fuzzy_csv"
-                    )
                 else:
                     st.info("Zero fuzzy discrepancies detected.")
 
             with tab3:
                 if len(un_a_pd) > 0:
-                    st.markdown("**Source A Entries Missing in Source B (Unmatched Subledger Items)**")
                     st.dataframe(un_a_pd, use_container_width=True)
-                    st.download_button(
-                        label="📥 Download Source A Exceptions (CSV)",
-                        data=res["un_a_pl"].write_csv(),
-                        file_name="unmatched_ledger_exceptions.csv",
-                        mime="text/csv",
-                        key="btn_un_a_csv"
-                    )
                 else:
                     st.success("All Source A items accounted for (0 open variances).")
 
             with tab4:
                 if len(un_b_pd) > 0:
-                    st.markdown("**Source B Entries Missing in Source A (Timing & External Exceptions)**")
                     st.dataframe(un_b_pd, use_container_width=True)
-                    st.download_button(
-                        label="📥 Download Source B Exceptions (CSV)",
-                        data=res["un_b_pl"].write_csv(),
-                        file_name="unmatched_external_exceptions.csv",
-                        mime="text/csv",
-                        key="btn_un_b_csv"
-                    )
                 else:
                     st.success("All Source B items accounted for (0 open variances).")

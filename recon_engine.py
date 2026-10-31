@@ -3,7 +3,7 @@ import polars as pl
 from rapidfuzz import fuzz
 
 def clean_alphanumeric_id(val: str) -> str:
-    """Normalizes document and transaction identifiers by stripping noise."""
+    """Normalizes document and transaction identifiers by stripping punctuation and prefixes."""
     if val is None:
         return ""
     s = str(val).strip().upper()
@@ -34,13 +34,13 @@ def execute_high_volume_reconciliation(
     """
     High-Throughput Vectorized 3-Tier Financial Reconciliation Engine.
     Tier 1: Deterministic Exact Match (Normalized ID + Amount within Tolerance)
-    Tier 2: Fuzzy / Discrepancy Match (Amount Match + ID/Party Similarity >= 70%)
-    Tier 3: True Exceptions (Unmatched A and Unmatched B)
+    Tier 2: Fuzzy / Discrepancy Match (Side-by-Side Amounts & Variance)
+    Tier 3: True Exceptions (Unmatched A & Unmatched B)
     """
     id_a, party_a, amt_a = map_a["id"], map_a["party"], map_a["amt"]
     id_b, party_b, amt_b = map_b["id"], map_b["party"], map_b["amt"]
 
-    # Pre-process Source A in Polars
+    # Pre-process Source A
     a_proc = df_a.clone().with_columns([
         pl.col(id_a).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
         pl.col(party_a).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
@@ -48,7 +48,7 @@ def execute_high_volume_reconciliation(
         pl.int_range(0, pl.len()).alias("_row_idx_a")
     ])
 
-    # Pre-process Source B in Polars
+    # Pre-process Source B
     b_proc = df_b.clone().with_columns([
         pl.col(id_b).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
         pl.col(party_b).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
@@ -56,7 +56,7 @@ def execute_high_volume_reconciliation(
         pl.int_range(0, pl.len()).alias("_row_idx_b")
     ])
 
-    # --- TIER 1: DETERMINISTIC EXACT MATCH (Vectorized Join on ID) ---
+    # --- TIER 1: DETERMINISTIC EXACT MATCH ---
     joined_id = a_proc.join(b_proc, on="_match_id", how="inner", suffix="_B")
     exact_matches = joined_id.filter(
         (pl.col("_match_amt") - pl.col("_match_amt_B")).abs() <= tolerance
@@ -65,7 +65,7 @@ def execute_high_volume_reconciliation(
     matched_a_indices = set(exact_matches["_row_idx_a"].to_list())
     matched_b_indices = set(exact_matches["_row_idx_b"].to_list())
 
-    # --- TIER 2: HEURISTIC / FUZZY MATCHING (Amount Match + Text Similarity) ---
+    # --- TIER 2: FUZZY CANDIDATES (Side-by-Side Amount Layout) ---
     unmatched_a_p1 = a_proc.filter(~pl.col("_row_idx_a").is_in(list(matched_a_indices)))
     unmatched_b_p1 = b_proc.filter(~pl.col("_row_idx_b").is_in(list(matched_b_indices)))
 
@@ -73,7 +73,6 @@ def execute_high_volume_reconciliation(
     used_a_idx = set()
     used_b_idx = set()
 
-    # Match remaining records on amount within tolerance, then test string similarity
     if len(unmatched_a_p1) > 0 and len(unmatched_b_p1) > 0:
         a_records = unmatched_a_p1.to_dicts()
         b_records = unmatched_b_p1.to_dicts()
@@ -88,13 +87,11 @@ def execute_high_volume_reconciliation(
                 if idx_b in used_b_idx:
                     continue
 
-                diff = abs(r_a["_match_amt"] - r_b["_match_amt"])
+                diff = round(abs(r_a["_match_amt"] - r_b["_match_amt"]), 2)
                 if diff <= tolerance:
-                    # Score ID similarity and Vendor name similarity
                     id_score = fuzz.token_sort_ratio(r_a["_match_id"], r_b["_match_id"])
                     party_score = fuzz.partial_ratio(r_a["_match_party"], r_b["_match_party"])
 
-                    # If IDs are a partial match (e.g., '104' in '104MISC') or similarity >= 70%
                     if (
                         r_a["_match_id"] in r_b["_match_id"]
                         or r_b["_match_id"] in r_a["_match_id"]
@@ -104,11 +101,28 @@ def execute_high_volume_reconciliation(
                         used_a_idx.add(idx_a)
                         used_b_idx.add(idx_b)
 
-                        merged_row = {**r_a}
+                        # Clean row structure with side-by-side comparison columns
+                        row_entry = {
+                            "Doc_ID_A": str(r_a.get(id_a, "")),
+                            "Doc_ID_B": str(r_b.get(id_b, "")),
+                            "Party_A": str(r_a.get(party_a, "")),
+                            "Party_B": str(r_b.get(party_b, "")),
+                            "Amount_Source_A": r_a["_match_amt"],
+                            "Amount_Source_B": r_b["_match_amt"],
+                            "Variance": diff,
+                            "Confidence_Score": f"{max(id_score, party_score):.1f}%",
+                            "Match_Status": "Fuzzy Discrepancy Review"
+                        }
+
+                        # Append remaining original metadata fields without internal keys
+                        for k, v in r_a.items():
+                            if k not in row_entry and not k.startswith("_"):
+                                row_entry[f"{k}_A"] = v
                         for k, v in r_b.items():
-                            merged_row[f"{k}_B"] = v
-                        merged_row["Fuzzy_Confidence"] = f"{max(id_score, party_score):.1f}%"
-                        fuzzy_matches_list.append(merged_row)
+                            if k not in row_entry and not k.startswith("_"):
+                                row_entry[f"{k}_B"] = v
+
+                        fuzzy_matches_list.append(row_entry)
                         break
 
     fuzzy_out_df = pl.from_dicts(fuzzy_matches_list) if fuzzy_matches_list else pl.DataFrame()
@@ -120,11 +134,14 @@ def execute_high_volume_reconciliation(
     unmatched_a = a_proc.filter(~pl.col("_row_idx_a").is_in(all_excluded_a))
     unmatched_b = b_proc.filter(~pl.col("_row_idx_b").is_in(all_excluded_b))
 
-    drop_helpers = ["_match_id", "_match_party", "_match_amt", "_row_idx_a", "_row_idx_b", "_match_id_B", "_match_party_B", "_match_amt_B"]
+    # Strip internal processing columns
+    def clean_output_df(df: pl.DataFrame) -> pl.DataFrame:
+        cols_to_drop = [c for c in df.columns if c.startswith("_") or c.endswith("_B_B") or "_row_idx" in c or "_match_" in c]
+        return df.drop(cols_to_drop) if cols_to_drop else df
 
-    matched_out = exact_matches.drop([c for c in drop_helpers if c in exact_matches.columns])
-    fuzzy_out = fuzzy_out_df.drop([c for c in drop_helpers if c in fuzzy_out_df.columns]) if len(fuzzy_out_df) > 0 else pl.DataFrame()
-    un_a_out = unmatched_a.drop([c for c in drop_helpers if c in unmatched_a.columns])
-    un_b_out = unmatched_b.drop([c for c in drop_helpers if c in unmatched_b.columns])
+    matched_out = clean_output_df(exact_matches)
+    fuzzy_out = clean_output_df(fuzzy_out_df) if len(fuzzy_out_df) > 0 else pl.DataFrame()
+    un_a_out = clean_output_df(unmatched_a)
+    un_b_out = clean_output_df(unmatched_b)
 
     return matched_out, fuzzy_out, un_a_out, un_b_out

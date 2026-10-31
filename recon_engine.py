@@ -108,7 +108,7 @@ def execute_high_volume_reconciliation(
     matched_a_indices = set(exact_matches["_row_idx_a"].to_list())
     matched_b_indices = set(exact_matches["_row_idx_b"].to_list())
 
-    # --- TIER 2: FUZZY CANDIDATES (Side-by-Side Amount Layout) ---
+    # --- TIER 2: FUZZY CANDIDATES (Optimized Amount-Window Pre-filtering) ---
     unmatched_a_p1 = a_proc.filter(~pl.col("_row_idx_a").is_in(list(matched_a_indices)))
     unmatched_b_p1 = b_proc.filter(~pl.col("_row_idx_b").is_in(list(matched_b_indices)))
 
@@ -120,51 +120,62 @@ def execute_high_volume_reconciliation(
         a_records = unmatched_a_p1.to_dicts()
         b_records = unmatched_b_p1.to_dicts()
 
+        # Sort B records by numeric amount to allow fast range lookups
+        b_records_sorted = sorted(b_records, key=lambda x: x["_match_amt"])
+        b_amounts = [x["_match_amt"] for x in b_records_sorted]
+
+        import bisect
+
         for r_a in a_records:
             idx_a = r_a["_row_idx_a"]
             if idx_a in used_a_idx:
                 continue
 
-            for r_b in b_records:
+            amt_a_val = r_a["_match_amt"]
+            # Find only B candidates falling within +/- tolerance
+            left_idx = bisect.bisect_left(b_amounts, amt_a_val - tolerance)
+            right_idx = bisect.bisect_right(b_amounts, amt_a_val + tolerance)
+
+            for b_pos in range(left_idx, right_idx):
+                r_b = b_records_sorted[b_pos]
                 idx_b = r_b["_row_idx_b"]
                 if idx_b in used_b_idx:
                     continue
 
-                diff = round(abs(r_a["_match_amt"] - r_b["_match_amt"]), 2)
-                if diff <= tolerance:
-                    id_score = fuzz.token_sort_ratio(r_a["_match_id"], r_b["_match_id"])
-                    party_score = fuzz.partial_ratio(r_a["_match_party"], r_b["_match_party"])
+                diff = round(abs(amt_a_val - r_b["_match_amt"]), 2)
+                id_score = fuzz.token_sort_ratio(r_a["_match_id"], r_b["_match_id"])
+                party_score = fuzz.partial_ratio(r_a["_match_party"], r_b["_match_party"])
 
-                    if (
-                        r_a["_match_id"] in r_b["_match_id"]
-                        or r_b["_match_id"] in r_a["_match_id"]
-                        or id_score >= fuzzy_threshold
-                        or party_score >= 80.0
-                    ):
-                        used_a_idx.add(idx_a)
-                        used_b_idx.add(idx_b)
+                if (
+                    r_a["_match_id"] in r_b["_match_id"]
+                    or r_b["_match_id"] in r_a["_match_id"]
+                    or id_score >= fuzzy_threshold
+                    or party_score >= 80.0
+                ):
+                    used_a_idx.add(idx_a)
+                    used_b_idx.add(idx_b)
 
-                        row_entry = {
-                            "Doc_ID_A": str(r_a.get(id_a, "")),
-                            "Doc_ID_B": str(r_b.get(id_b, "")),
-                            "Party_A": str(r_a.get(party_a, "")),
-                            "Party_B": str(r_b.get(party_b, "")),
-                            "Amount_Source_A": r_a["_match_amt"],
-                            "Amount_Source_B": r_b["_match_amt"],
-                            "Variance": diff,
-                            "Confidence_Score": f"{max(id_score, party_score):.1f}%",
-                            "Match_Status": "Fuzzy Discrepancy Review"
-                        }
+                    row_entry = {
+                        "Doc_ID_A": str(r_a.get(id_a, "")),
+                        "Doc_ID_B": str(r_b.get(id_b, "")),
+                        "Party_A": str(r_a.get(party_a, "")),
+                        "Party_B": str(r_b.get(party_b, "")),
+                        "Amount_Source_A": r_a["_match_amt"],
+                        "Amount_Source_B": r_b["_match_amt"],
+                        "Variance": diff,
+                        "Confidence_Score": f"{max(id_score, party_score):.1f}%",
+                        "Match_Status": "Fuzzy Discrepancy Review"
+                    }
 
-                        for k, v in r_a.items():
-                            if k not in row_entry and not k.startswith("_"):
-                                row_entry[f"{k}_A"] = v
-                        for k, v in r_b.items():
-                            if k not in row_entry and not k.startswith("_"):
-                                row_entry[f"{k}_B"] = v
+                    for k, v in r_a.items():
+                        if k not in row_entry and not k.startswith("_"):
+                            row_entry[f"{k}_A"] = v
+                    for k, v in r_b.items():
+                        if k not in row_entry and not k.startswith("_"):
+                            row_entry[f"{k}_B"] = v
 
-                        fuzzy_matches_list.append(row_entry)
-                        break
+                    fuzzy_matches_list.append(row_entry)
+                    break
 
     fuzzy_out_df = pl.from_dicts(fuzzy_matches_list) if fuzzy_matches_list else pl.DataFrame()
 

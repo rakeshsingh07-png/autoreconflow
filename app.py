@@ -1453,24 +1453,39 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             st.markdown("#### ⚖️ Executive Reconciliation & Pipeline Completeness Summary")
             amt_col = res["amt_col_a"]
             input_ledger_amt = res["input_total_ledger"]
+            
             cleared_amt = float(matched_pd[amt_col].sum()) if len(matched_pd) > 0 and amt_col in matched_pd.columns else 0.0
             open_exceptions_amt = float(un_a_pd[amt_col].sum()) if len(un_a_pd) > 0 and amt_col in un_a_pd.columns else 0.0
-            variance_amt = float(fuzzy_pd[amt_col].sum()) if len(fuzzy_pd) > 0 and amt_col in fuzzy_pd.columns else 0.0
+            
+            # Robust extraction of Tier-2 Fuzzy volume
+            if len(fuzzy_pd) > 0:
+                if "Amount_Source_A" in fuzzy_pd.columns:
+                    variance_amt = float(fuzzy_pd["Amount_Source_A"].sum())
+                elif amt_col in fuzzy_pd.columns:
+                    variance_amt = float(fuzzy_pd[amt_col].sum())
+                elif f"{amt_col}_A" in fuzzy_pd.columns:
+                    variance_amt = float(fuzzy_pd[f"{amt_col}_A"].sum())
+                else:
+                    variance_amt = 0.0
+            else:
+                variance_amt = 0.0
             
             output_sum = cleared_amt + open_exceptions_amt + variance_amt
             pipeline_diff = abs(input_ledger_amt - output_sum)
 
-            bal1, bal2, bal3, bal4 = st.columns(4)
+            bal1, bal2, bal3, bal4, bal5 = st.columns(5)
             bal1.metric("Ingested Ledger Total", f"₹{input_ledger_amt:,.2f}")
             bal2.metric("Cleared Matches", f"₹{cleared_amt:,.2f}")
-            bal3.metric("Open Exceptions", f"₹{open_exceptions_amt:,.2f}")
-            bal4.metric("Pipeline Imbalance", f"₹{pipeline_diff:,.2f}", delta="Zero Discrepancy" if pipeline_diff < 0.01 else "-Asymmetry", delta_color="normal" if pipeline_diff < 0.01 else "inverse")
+            bal3.metric("Fuzzy / Discrepancy", f"₹{variance_amt:,.2f}")
+            bal4.metric("Open Exceptions", f"₹{open_exceptions_amt:,.2f}")
+            bal5.metric("Pipeline Imbalance", f"₹{pipeline_diff:,.2f}", 
+                        delta="0.00 Balanced" if pipeline_diff < 0.01 else "-Asymmetry", 
+                        delta_color="normal" if pipeline_diff < 0.01 else "inverse")
 
             if pipeline_diff >= 0.01:
                 st.error("🚨 Control Exception: Data Pipeline Asymmetry Detected. Ingested cash volume differs from reconciled components.")
             else:
-                st.success("✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Open Exceptions (0.00 Variance).")
-
+                st.success("✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Fuzzy Candidates + Open Exceptions (0.00 Variance).")
             st.markdown("#### 📊 Internal Control Transaction Metrics")
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Tier-1 Exact Matches", f"{len(matched_pd):,} records")

@@ -37,9 +37,12 @@ def calculate_aging_days(date_val, as_at_date=None) -> tuple:
     dt = None
     date_str = str(date_val).strip()
     
-    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+    for fmt in (
+        "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d",
+        "%d-%b-%Y", "%d-%b-%y", "%d %b %Y", "%b %d, %Y"
+    ):
         try:
-            dt = datetime.datetime.strptime(date_str[:10], fmt).date()
+            dt = datetime.datetime.strptime(date_str[:11].strip(), fmt).date()
             break
         except ValueError:
             continue
@@ -80,19 +83,19 @@ def execute_high_volume_reconciliation(
     id_a, party_a, amt_a = map_a["id"], map_a["party"], map_a["amt"]
     id_b, party_b, amt_b = map_b["id"], map_b["party"], map_b["amt"]
 
-    # Pre-process Source A
+    # Pre-process Source A (Numeric-safe sanitization)
     a_proc = df_a.clone().with_columns([
         pl.col(id_a).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
         pl.col(party_a).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
-        pl.col(amt_a).cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
+        pl.col(amt_a).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
         pl.int_range(0, pl.len()).alias("_row_idx_a")
     ])
 
-    # Pre-process Source B
+    # Pre-process Source B (Numeric-safe sanitization)
     b_proc = df_b.clone().with_columns([
         pl.col(id_b).cast(pl.Utf8).map_elements(clean_alphanumeric_id, return_dtype=pl.Utf8).alias("_match_id"),
         pl.col(party_b).cast(pl.Utf8).map_elements(clean_party_string, return_dtype=pl.Utf8).alias("_match_party"),
-        pl.col(amt_b).cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
+        pl.col(amt_b).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).alias("_match_amt"),
         pl.int_range(0, pl.len()).alias("_row_idx_b")
     ])
 

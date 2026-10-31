@@ -413,6 +413,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
     comp_name = company_info.get("name", "AutoReconFlow Enterprise")
     comp_addr = company_info.get("address", "")
     comp_uid = company_info.get("uid", "")
+    as_at_str = metadata.get("as_at_date", datetime.date.today().strftime("%Y-%m-%d"))
 
     navy_header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
     section_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
@@ -461,11 +462,12 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
         ws_summary.merge_cells("A2:C2")
 
         meta_rows = [
+            ("Reconciliation 'As At' Cut-Off Date:", as_at_str),
             ("Execution Timestamp (UTC):", timestamp_utc),
             ("Source A Ingest SHA-256:", metadata.get("source_a_fingerprint", "N/A")),
             ("Source B Ingest SHA-256:", metadata.get("source_b_fingerprint", "N/A")),
             ("Tolerance Applied:", f"± {tolerance:.2f} Currency Units"),
-            ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Exact -> Fuzzy Heuristic -> Aging Exceptions)"),
+            ("Matching Methodology:", "Polars Multi-Core Vectorized Engine (Exact -> Fuzzy Heuristic -> 'As At' Aging Exceptions)"),
             ("Control Assertion Standard:", "PCAOB AS 2201 / SOX 404 Completeness & Aging Assurance")
         ]
         
@@ -475,7 +477,7 @@ def generate_consolidated_workbook(matched_df, fuzzy_df, un_a_df, un_b_df, signo
             c1.font = bold_font
             c2.font = regular_font
 
-        header_row = 11
+        header_row = 12
         for col_idx, h_text in enumerate(["Reconciliation Assertion Category", "Record Count", "Control Status"], 1):
             cell = ws_summary.cell(row=header_row, column=col_idx, value=h_text)
             cell.fill = navy_header_fill
@@ -606,6 +608,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     comp_name = sanitize_pdf_text(company_info.get("name", "AutoReconFlow Enterprise"))
     comp_addr = sanitize_pdf_text(company_info.get("address", ""))
     comp_uid = sanitize_pdf_text(company_info.get("uid", ""))
+    as_at_date_str = sanitize_pdf_text(signoff_data.get("as_at_date", ""))
 
     y_brand_start = pdf.get_y()
     pdf.set_xy(10, y_brand_start)
@@ -644,25 +647,27 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
 
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(203, 213, 225)
-    pdf.rect(10, pdf.get_y(), 190, 22, 'DF')
+    pdf.rect(10, pdf.get_y(), 190, 25, 'DF')
     pdf.set_xy(14, pdf.get_y() + 2)
 
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.set_text_color(50, 50, 50)
-    pdf.cell(45, 4.5, 'Execution Timestamp (UTC):', 0, 0)
-    pdf.set_font('Helvetica', '', 8.5)
-    pdf.cell(55, 4.5, sanitize_pdf_text(signoff_data.get('preparer_date', '')), 0, 0)
+    pdf.cell(45, 4.5, 'Effective Cut-Off Date:', 0, 0)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(27, 54, 93)
+    pdf.cell(55, 4.5, as_at_date_str if as_at_date_str else "Current Execution Date", 0, 0)
 
     pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(50, 50, 50)
     pdf.cell(40, 4.5, 'Workpaper Reference:', 0, 0)
     pdf.set_font('Helvetica', '', 8.5)
     pdf.cell(45, 4.5, sanitize_pdf_text(signoff_data.get('wp_ref', '')), 0, 1)
 
     pdf.set_x(14)
     pdf.set_font('Helvetica', 'B', 8.5)
-    pdf.cell(45, 4.5, 'Variance Tolerance:', 0, 0)
+    pdf.cell(45, 4.5, 'Execution Timestamp (UTC):', 0, 0)
     pdf.set_font('Helvetica', '', 8.5)
-    pdf.cell(55, 4.5, f'+/- {tolerance:.2f} Currency Units', 0, 0)
+    pdf.cell(55, 4.5, sanitize_pdf_text(signoff_data.get('preparer_date', '')), 0, 0)
 
     pdf.set_font('Helvetica', 'B', 8.5)
     pdf.cell(40, 4.5, 'Supervisory Verdict:', 0, 0)
@@ -674,7 +679,14 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
         pdf.set_text_color(180, 40, 40)
     pdf.cell(45, 4.5, verdict, 0, 1)
 
-    pdf.ln(6)
+    pdf.set_x(14)
+    pdf.set_font('Helvetica', 'B', 8.5)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(45, 4.5, 'Variance Tolerance:', 0, 0)
+    pdf.set_font('Helvetica', '', 8.5)
+    pdf.cell(55, 4.5, f'+/- {tolerance:.2f} Currency Units', 0, 1)
+
+    pdf.ln(5)
 
     pdf.set_text_color(255, 255, 255)
     pdf.set_fill_color(27, 54, 93)
@@ -784,7 +796,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
     pdf.multi_cell(0, 4, notes_clean)
     pdf.ln(3)
 
-    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref', '')}_{signoff_data.get('source_a_fingerprint', '')}_{signoff_data.get('source_b_fingerprint', '')}_{signoff_data.get('preparer_date', '')}_{signoff_data.get('reviewer_date', '')}_{tolerance}_{query_trail}"
+    raw_fingerprint = f"{comp_uid}_{signoff_data.get('wp_ref', '')}_{signoff_data.get('source_a_fingerprint', '')}_{signoff_data.get('source_b_fingerprint', '')}_{signoff_data.get('preparer_date', '')}_{signoff_data.get('reviewer_date', '')}_{tolerance}_{query_trail}_{as_at_date_str}"
     doc_hash = hashlib.sha256(raw_fingerprint.encode()).hexdigest().upper()
 
     pdf.set_fill_color(240, 240, 240)
@@ -1200,7 +1212,17 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 party_b = st.selectbox("Party / Narrative Column", cols_b, index=idx_party_b, key="map_party_b")
                 amt_b = st.selectbox("Amount Column", cols_b, index=idx_amt_b, key="map_amt_b")
 
-        tolerance = st.slider("Allowed Amount Tolerance (Currency Units)", 0.00, 5.00, 1.00, step=0.10, key="univ_tol_slider")
+        # --- AUDIT CUT-OFF / 'AS AT' PERIOD CONTROLS ---
+        p_col1, p_col2 = st.columns([1, 1])
+        with p_col1:
+            recon_as_at_date = st.date_input(
+                "📅 Reconciliation Cut-Off / Effective 'As At' Date",
+                value=datetime.date(2026, 10, 31),
+                help="Aging days on unmatched items will be measured against this period end date.",
+                key="recon_as_at_picker"
+            )
+        with p_col2:
+            tolerance = st.slider("Allowed Amount Tolerance (Currency Units)", 0.00, 5.00, 1.00, step=0.10, key="univ_tol_slider")
 
         if st.button("🚀 Run Automated Reconciliation (Polars 3-Tier)", type="primary", key="btn_run_univ"):
             map_a = {"id": id_a, "party": party_a, "amt": amt_a}
@@ -1209,6 +1231,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             st.session_state["execution_metadata"] = {
                 "execution_id": f"REC-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
                 "timestamp_utc": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "as_at_date": str(recon_as_at_date),
                 "tolerance_applied": float(tolerance),
                 "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
                 "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A"),
@@ -1218,10 +1241,12 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "pcaob_standard_ref": "AS 2201 / SOX 404 Section 8(b)"
             }
 
-            with st.spinner("Processing through Polars 3-tier matching engine..."):
+            with st.spinner("Processing through Polars 3-tier matching engine with dynamic 'As At' aging..."):
                 try:
                     matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
-                        df_a, df_b, map_a, map_b, tolerance=tolerance
+                        df_a, df_b, map_a, map_b, 
+                        tolerance=tolerance, 
+                        as_at_date=recon_as_at_date
                     )
                 except Exception as e:
                     st.error(f"Reconciliation error: {str(e)}")
@@ -1237,6 +1262,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "un_a_pl": un_a,
                 "un_b_pl": un_b,
                 "tolerance": tolerance,
+                "as_at_date": str(recon_as_at_date),
                 "amt_col_a": amt_a,
                 "amt_col_b": amt_b,
                 "input_total_ledger": float(df_a[amt_a].cast(pl.Float64, strict=False).fill_null(0.0).sum()),
@@ -1295,7 +1321,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
             if pipeline_diff >= 0.01:
                 st.error("🚨 Control Exception: Data Pipeline Asymmetry Detected. Ingested cash volume differs from reconciled components.")
             else:
-                st.success("✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Fuzzy Candidates + Open Exceptions (0.00 Variance).")
+                st.success(f"✅ Completeness Assertion Cleared (PCAOB AS 2201): Ingested Ledger Amount = Cleared Volume + Fuzzy Candidates + Open Exceptions (As At: {res.get('as_at_date')}).")
 
             st.markdown("#### 📊 Internal Control Transaction Metrics")
             k1, k2, k3, k4 = st.columns(4)
@@ -1320,7 +1346,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     prep_email = st.text_input("Preparer Email Address", value="analyst@company.com", key="so_prep_email", disabled=is_prep_done)
                     rev_target_email = st.text_input("Reviewer Notification Email", value="controller@company.com", key="so_rev_target_email", disabled=is_prep_done)
                     prep_date = st.text_input("Preparation Date & Time (UTC)", value=st.session_state.get("saved_prep_date", now_str), key="so_prep_date", disabled=is_prep_done)
-                    prep_signed = st.checkbox("I verify that ledger entries, tolerances, and files are audited.", value=True, key="so_prep_signed", disabled=is_prep_done)
+                    prep_signed = st.checkbox("I verify that ledger entries, tolerances, cut-off dates, and files are audited.", value=True, key="so_prep_signed", disabled=is_prep_done)
 
                     if not is_prep_done:
                         if st.button("🔒 Complete & Electronically Seal Stage 1", type="primary", use_container_width=True, key="btn_prep_submit"):
@@ -1356,7 +1382,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         rev_date = st.text_input("Review Date & Time (UTC)", value=st.session_state.get("saved_rev_date", now_str), key="so_rev_date", disabled=is_rev_approved)
                         rev_verdict = st.selectbox("Supervisory Audit Verdict", ["Approved / Cleared", "Approved with Exceptions Noted", "Under Remediation", "Rejected"], key="so_rev_verdict", disabled=is_rev_approved)
                         wp_ref = st.text_input("Audit Workpaper Reference Code", value="WP-SOX-REC-2026-Q4", key="so_wp_ref", disabled=is_rev_approved)
-                        audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches verified. Exceptions evaluated under tolerable limit.", key="so_notes", disabled=is_rev_approved)
+                        audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches and aging exceptions verified against cut-off policy.", key="so_notes", disabled=is_rev_approved)
 
                         if not is_rev_approved and query_state["status"] not in ["PENDING_CLARIFICATION"]:
                             if st.button("🛡️ Approve, Seal & Issue Audit Artifacts", type="primary", use_container_width=True, key="btn_rev_approve_direct"):
@@ -1400,7 +1426,8 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     "wp_ref": st.session_state.get("saved_wp_ref", "WP-SOX-REC-2026-Q4"),
                     "audit_comments": st.session_state.get("saved_audit_notes", "Verified under standard tolerance."),
                     "source_a_fingerprint": st.session_state.get("hash_source_a", "N/A"),
-                    "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A")
+                    "source_b_fingerprint": st.session_state.get("hash_source_b", "N/A"),
+                    "as_at_date": res.get("as_at_date", "")
                 }
 
                 # Excel Workpaper Export

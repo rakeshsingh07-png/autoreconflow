@@ -168,13 +168,13 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
     filename = uploaded_file.name.lower()
     uploaded_file.seek(0)
     try:
-        if filename.endswith(".csv",".txt"):
+        if filename.endswith((".csv", ".txt")):
             return pl.read_csv(uploaded_file, ignore_errors=True)
         elif filename.endswith((".xlsx", ".xls")):
             return pl.read_excel(uploaded_file)
     except Exception:
         uploaded_file.seek(0)
-        df_pd = pd.read_csv(uploaded_file) if filename.endswith(".csv",".txt") else pd.read_excel(uploaded_file)
+        df_pd = pd.read_csv(uploaded_file) if filename.endswith((".csv", ".txt")) else pd.read_excel(uploaded_file)
         return pl.from_pandas(df_pd)
     return pl.DataFrame()
 
@@ -902,14 +902,14 @@ with tab_gst:
     if not use_gst_mock:
         u1, u2 = st.columns(2)
         with u1:
-            fpr = st.file_uploader("Upload Purchase Register (Books / Tally)", type=["csv", "xlsx"], key="up_pr")
+            fpr = st.file_uploader("Upload Purchase Register (CSV, TXT, or XLSX)", type=["csv", "xlsx", "xls", "txt"], key="up_pr")
             if fpr: 
                 raw_pr = fpr.getvalue()
                 st.session_state["hash_gst_pr"] = compute_stream_sha256(raw_pr)
                 st.caption(f"🔒 **Purchase Register SHA-256:** `{st.session_state['hash_gst_pr']}`")
                 df_pr = robust_read_file_polars(fpr)
         with u2:
-            f2b = st.file_uploader("Upload GSTR-2B Statement (GST Portal)", type=["csv", "xlsx"], key="up_2b")
+            f2b = st.file_uploader("Upload GSTR-2B Statement (CSV, TXT, or XLSX)", type=["csv", "xlsx", "xls", "txt"], key="up_2b")
             if f2b: 
                 raw_2b = f2b.getvalue()
                 st.session_state["hash_gst_2b"] = compute_stream_sha256(raw_2b)
@@ -1030,7 +1030,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
         v_col1, v_col2 = st.columns(2)
         with v_col1:
             st.subheader("Source A: Internal Purchase Books / ERP")
-            f_bks = st.file_uploader("Upload Internal Books (CSV, TXT, or XLSX", type=["csv","xlsx","xls","txt"], key="up_vat_books")
+            f_bks = st.file_uploader("Upload Internal Books (CSV, TXT, or XLSX)", type=["csv", "xlsx", "xls", "txt"], key="up_vat_books")
             if f_bks: 
                 raw_bks = f_bks.getvalue()
                 st.session_state["hash_vat_bks"] = compute_stream_sha256(raw_bks)
@@ -1038,7 +1038,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
                 df_books_vat = robust_read_file_polars(f_bks)
         with v_col2:
             st.subheader("Source B: Supplier Statement / Tax Extract")
-            f_ext = st.file_uploader("Upload Supplier / External Statement (CSV, TXT, or XLSX", type=["csv","xlsx","xls","txt"], key="up_vat_ext")
+            f_ext = st.file_uploader("Upload Supplier / External Statement (CSV, TXT, or XLSX)", type=["csv", "xlsx", "xls", "txt"], key="up_vat_ext")
             if f_ext: 
                 raw_ext = f_ext.getvalue()
                 st.session_state["hash_vat_ext"] = compute_stream_sha256(raw_ext)
@@ -1165,7 +1165,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Source A (Ledger / Internal Records)")
-            file_a = st.file_uploader("Upload CSV or XLSX", type=["csv", "xlsx", "xls"], key="file_a")
+            file_a = st.file_uploader("Upload CSV, TXT, or XLSX", type=["csv", "xlsx", "xls", "txt"], key="file_a")
             if file_a: 
                 raw_a = file_a.getvalue()
                 st.session_state["hash_source_a"] = compute_stream_sha256(raw_a)
@@ -1173,7 +1173,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 df_a = robust_read_file_polars(file_a)
         with col2:
             st.subheader("Source B (Bank / Tax Portal / External Records)")
-            file_b = st.file_uploader("Upload CSV or XLSX", type=["csv", "xlsx", "xls"], key="file_b")
+            file_b = st.file_uploader("Upload CSV, TXT, or XLSX", type=["csv", "xlsx", "xls", "txt"], key="file_b")
             if file_b: 
                 raw_b = file_b.getvalue()
                 st.session_state["hash_source_b"] = compute_stream_sha256(raw_b)

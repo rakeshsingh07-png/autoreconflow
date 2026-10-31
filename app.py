@@ -181,9 +181,7 @@ def robust_read_file_polars(uploaded_file) -> pl.DataFrame:
 
     # 2. CSV / TXT files
     try:
-        # Polars auto-separator read
         df = pl.read_csv(io.BytesIO(raw_content), ignore_errors=True, truncate_ragged_lines=True)
-        # If incorrectly parsed into 1 column containing commas, fall back to pandas
         if len(df.columns) == 1 and ("," in str(df.columns[0]) or "\t" in str(df.columns[0])):
             df_pd = pd.read_csv(io.BytesIO(raw_content), sep=None, engine='python')
             return pl.from_pandas(df_pd)
@@ -990,7 +988,7 @@ with tab_gst:
                 b1, b2, b3, b4 = execute_gst_itc_reconciliation_polars(df_pr, df_2b, map_pr, map_2b, tolerance=gst_tol)
             st.session_state["gst_res"] = (b1, b2, b3, b4)
 
-       if "gst_res" in st.session_state:
+        if "gst_res" in st.session_state:
             b1, b2, b3, b4 = st.session_state["gst_res"]
             st.markdown("#### 📊 GSTR-3B Statutory ITC Audit Buckets")
             k1, k2, k3, k4 = st.columns(4)
@@ -999,7 +997,7 @@ with tab_gst:
             k3.metric("Bucket 3: Missing in 2B", f"{len(b3)} invoices", delta="-ITC Blocked", delta_color="inverse")
             k4.metric("Bucket 4: Tax Mismatches", f"{len(b4)} invoices", delta="Requires Review", delta_color="inverse")
 
-            # --- INSERT SUMMARY TABLE HERE ---
+            # --- ON-SCREEN STATUTORY SUMMARY BREAKDOWN TABLE ---
             summary_table_data = [
                 {
                     "Statutory Bucket": "Bucket 1: Direct Matches",

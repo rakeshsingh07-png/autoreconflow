@@ -112,6 +112,28 @@ st.markdown("""
 # ==============================================================================
 # --- License Verification Engine (Deterministic Checksum + Date Expiry) ---
 # ==============================================================================
+LICENSE_CACHE_FILE = ".license_cache"
+
+def load_cached_license():
+    """Loads previously entered credentials from local file cache."""
+    if os.path.exists(LICENSE_CACHE_FILE):
+        try:
+            with open(LICENSE_CACHE_FILE, "r") as f:
+                lines = f.read().splitlines()
+                if len(lines) >= 2:
+                    return lines[0].strip(), lines[1].strip()
+        except Exception:
+            pass
+    return "", ""
+
+def save_cached_license(email: str, key: str):
+    """Saves valid credentials to local file cache."""
+    try:
+        with open(LICENSE_CACHE_FILE, "w") as f:
+            f.write(f"{email.strip()}\n{key.strip()}")
+    except Exception:
+        pass
+
 def verify_license_key(email: str, license_key: str):
     """
     Verifies promotional evaluation and annual commercial licenses.
@@ -404,7 +426,6 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             ws_sum.cell(row=5, column=1).font = bold_f
             ws_sum.cell(row=6, column=1).font = bold_f
 
-        # 6-Column Executive Audit Header matching the on-screen table
         headers = [
             "Statutory Bucket",
             "Invoices",
@@ -710,6 +731,7 @@ def generate_pdf_signoff_certificate(matched_count, fuzzy_count, un_a_count, un_
             logo_temp.write(logo_bytes)
             logo_temp.flush()
             logo_temp.close()
+            logo_temp.name
             logo_temp_file = logo_temp.name
         except Exception:
             logo_temp_file = None
@@ -941,16 +963,18 @@ company_uid = st.sidebar.text_input("Tax / Entity ID (GSTIN / VAT / CIN)", value
 st.sidebar.divider()
 
 with st.sidebar.expander("🔑 License Activation & Verification", expanded=False):
-    user_email_input = st.text_input("Registered Email", placeholder="buyer@clientdomain.com", key="lic_user_email")
-    user_key_input = st.text_input("License Key", placeholder="ARF-PRAC-XXXX-XXXX-XXXX", key="lic_user_key")
+    cached_email, cached_key = load_cached_license()
+    user_email_input = st.text_input("Registered Email", value=cached_email, placeholder="buyer@clientdomain.com", key="lic_user_email")
+    user_key_input = st.text_input("License Key", value=cached_key, placeholder="ARF-TRIAL-YYYYMMDD-XXXX", key="lic_user_key")
     if user_email_input and user_key_input:
         is_valid, active_tier = verify_license_key(user_email_input, user_key_input)
         if is_valid:
             st.success(f"✅ Verified: {active_tier}")
             st.session_state["licensed"] = True
             st.session_state["license_tier"] = active_tier
+            save_cached_license(user_email_input, user_key_input)
         else:
-            st.error("❌ Invalid License Key or Email Mismatch.")
+            st.error(f"❌ {active_tier or 'Invalid License Key or Email Mismatch.'}")
             st.session_state["licensed"] = False
 
 st.sidebar.markdown("### 💼 Commercial Licensing")
@@ -1432,7 +1456,6 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                     st.error(f"Reconciliation error: {str(e)}")
                     st.stop()
 
-            # Clean and sum total inputs safely without string concatenation errors
             safe_ledger_sum = float(
                 df_a.select(
                     pl.col(amt_a).cast(pl.Utf8).str.replace_all(r"[^0-9.-]", "").cast(pl.Float64, strict=False).fill_null(0.0).sum()
@@ -1555,7 +1578,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                 st.rerun()
                     else:
                         st.success(f"🔒 Preparer Task Completed & Locked by {st.session_state.get('saved_prep_name', prep_name)}")
-# --- EMAIL DISPATCH TRIGGER ---
+                        # --- EMAIL DISPATCH TRIGGER ---
                         if st.button("📧 Dispatch Audit Notification to Reviewer", key="btn_send_email_direct", use_container_width=True):
                             target_to = st.session_state.get("saved_rev_target_email", rev_target_email)
                             if not target_to or "@" not in target_to:
@@ -1604,7 +1627,6 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         wp_ref = st.text_input("Audit Workpaper Reference Code", value="WP-SOX-REC-2026-Q4", key="so_wp_ref", disabled=is_rev_approved)
                         audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches and aging exceptions verified against cut-off policy.", key="so_notes", disabled=is_rev_approved)
 
-                        # --- INSERT AUDIT QUERY & CLARIFICATION WORKFLOW HERE ---
                         all_flag_candidates = []
                         for df_src, id_c in [(fuzzy_pd, "Doc_ID_A"), (un_a_pd, amt_col), (un_b_pd, res["amt_col_b"])]:
                             if len(df_src) > 0:

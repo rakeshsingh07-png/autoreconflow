@@ -1103,7 +1103,7 @@ with tab_gst:
                 }
             ]
 
-          status_badges = {
+            status_badges = {
                 "Eligible to Claim": ("#dcfce7", "#15803d", "✓"),
                 "Verify & Book": ("#fef9c3", "#a16207", "⚠"),
                 "ITC Blocked": ("#fee2e2", "#b91c1c", "🚫"),
@@ -1114,34 +1114,9 @@ with tab_gst:
             for r in summary_rows:
                 bg_col, txt_col, icon = status_badges.get(r["status"], ("#f1f5f9", "#334155", ""))
                 badge_html = f'<span style="background-color: {bg_col}; color: {txt_col}; padding: 4px 10px; border-radius: 12px; font-weight: 600; font-size: 11.5px; display: inline-block;">{icon} {r["status"]}</span>'
-                table_rows_html += (
-                    f'<tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">'
-                    f'<td style="padding: 12px 14px; font-weight: 600; color: #1B365D;">{r["bucket"]}</td>'
-                    f'<td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["invoices"]:,}</td>'
-                    f'<td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["impact"]}</td>'
-                    f'<td style="padding: 12px 14px; text-align: center;">{badge_html}</td>'
-                    f'<td style="padding: 12px 14px; color: #475569; line-height: 1.4;">{r["meaning"]}</td>'
-                    f'<td style="padding: 12px 14px; color: #1e293b; font-size: 12px; line-height: 1.4;">{r["action"]}</td>'
-                    f'</tr>'
-                )
+                table_rows_html += f'<tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;"><td style="padding: 12px 14px; font-weight: 600; color: #1B365D;">{r["bucket"]}</td><td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["invoices"]:,}</td><td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["impact"]}</td><td style="padding: 12px 14px; text-align: center;">{badge_html}</td><td style="padding: 12px 14px; color: #475569; line-height: 1.4;">{r["meaning"]}</td><td style="padding: 12px 14px; color: #1e293b; font-size: 12px; line-height: 1.4;">{r["action"]}</td></tr>'
 
-            executive_card_html = (
-                '<div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff; margin-top: 16px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">'
-                '<table style="width: 100%; border-collapse: collapse; text-align: left;">'
-                '<thead>'
-                '<tr style="background: linear-gradient(135deg, #0A2540 0%, #1B365D 100%); color: #ffffff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">'
-                '<th style="padding: 12px 14px; width: 18%;">Statutory Bucket</th>'
-                '<th style="padding: 12px 14px; text-align: right; width: 8%;">Invoices</th>'
-                '<th style="padding: 12px 14px; text-align: right; width: 12%;">Tax Impact</th>'
-                '<th style="padding: 12px 14px; text-align: center; width: 14%;">Audit Status</th>'
-                '<th style="padding: 12px 14px; width: 24%;">Meaning</th>'
-                '<th style="padding: 12px 14px; width: 24%;">Required Statutory Action</th>'
-                '</tr>'
-                '</thead>'
-                f'<tbody>{table_rows_html}</tbody>'
-                '</table>'
-                '</div>'
-            )
+            executive_card_html = f'<div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff; margin-top: 16px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);"><table style="width: 100%; border-collapse: collapse; text-align: left;"><thead><tr style="background: linear-gradient(135deg, #0A2540 0%, #1B365D 100%); color: #ffffff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;"><th style="padding: 12px 14px; width: 18%;">Statutory Bucket</th><th style="padding: 12px 14px; text-align: right; width: 8%;">Invoices</th><th style="padding: 12px 14px; text-align: right; width: 12%;">Tax Impact</th><th style="padding: 12px 14px; text-align: center; width: 14%;">Audit Status</th><th style="padding: 12px 14px; width: 24%;">Meaning</th><th style="padding: 12px 14px; width: 24%;">Required Statutory Action</th></tr></thead><tbody>{table_rows_html}</tbody></table></div>'
 
             st.markdown("##### 📋 Statutory Audit & Action Breakdown")
             st.markdown(executive_card_html, unsafe_allow_html=True)

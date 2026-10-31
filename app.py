@@ -1030,7 +1030,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
         v_col1, v_col2 = st.columns(2)
         with v_col1:
             st.subheader("Source A: Internal Purchase Books / ERP")
-            f_bks = st.file_uploader("Upload Internal Books (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_books")
+            f_bks = st.file_uploader("Upload Internal Books (CSV, TXT, or XLSX", type=["csv","xlsx","xls","txt"], key="up_vat_books")
             if f_bks: 
                 raw_bks = f_bks.getvalue()
                 st.session_state["hash_vat_bks"] = compute_stream_sha256(raw_bks)
@@ -1038,7 +1038,7 @@ INV-FR-301,Paris Cloud Analytics,FR88991122,14000.00,0.00,EUR"""
                 df_books_vat = robust_read_file_polars(f_bks)
         with v_col2:
             st.subheader("Source B: Supplier Statement / Tax Extract")
-            f_ext = st.file_uploader("Upload Supplier / External Statement (CSV / Excel)", type=["csv", "xlsx"], key="up_vat_ext")
+            f_ext = st.file_uploader("Upload Supplier / External Statement (CSV, TXT, or XLSX", type=["csv","xlsx","xls","txt"], key="up_vat_ext")
             if f_ext: 
                 raw_ext = f_ext.getvalue()
                 st.session_state["hash_vat_ext"] = compute_stream_sha256(raw_ext)

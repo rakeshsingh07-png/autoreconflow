@@ -1552,6 +1552,64 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                         wp_ref = st.text_input("Audit Workpaper Reference Code", value="WP-SOX-REC-2026-Q4", key="so_wp_ref", disabled=is_rev_approved)
                         audit_notes = st.text_area("General Supervisory Notes", value="All deterministic matches and aging exceptions verified against cut-off policy.", key="so_notes", disabled=is_rev_approved)
 
+                        # --- INSERT AUDIT QUERY & CLARIFICATION WORKFLOW HERE ---
+                        all_flag_candidates = []
+                        for df_src, id_c in [(fuzzy_pd, "Doc_ID_A"), (un_a_pd, amt_col), (un_b_pd, res["amt_col_b"])]:
+                            if len(df_src) > 0:
+                                for col in df_src.columns:
+                                    if any(k in str(col).lower() for k in ["id", "invoice", "ref", "trans"]):
+                                        all_flag_candidates.extend(df_src[col].dropna().astype(str).tolist())
+                                        break
+                        all_flag_candidates = list(dict.fromkeys(all_flag_candidates))
+
+                        with st.expander("🔍 Line-Item Audit Query & Preparer Clarification Loop", expanded=(query_state["status"] != "NONE")):
+                            if query_state["status"] == "NONE" and not is_rev_approved:
+                                st.caption("Raise a supervisory flag on an aging exception or fuzzy discrepancy:")
+                                sel_item = st.selectbox("Select Line Item ID to Flag", options=all_flag_candidates if all_flag_candidates else ["None Available"], key="sel_flag_item")
+                                q_text = st.text_input("Reviewer Query / Audit Challenge", placeholder="e.g., Explain reason for >60 days aging without bank settlement.", key="txt_q_input")
+                                if st.button("🚩 Raise Audit Query / Request Clarification", type="secondary", use_container_width=True, key="btn_raise_q"):
+                                    if sel_item and sel_item != "None Available" and q_text:
+                                        st.session_state["audit_query_thread"] = {
+                                            "status": "PENDING_CLARIFICATION",
+                                            "item_id": sel_item,
+                                            "reviewer_query": q_text,
+                                            "reviewer_query_time": now_str,
+                                            "preparer_reply": "",
+                                            "preparer_reply_time": ""
+                                        }
+                                        st.rerun()
+                                    else:
+                                        st.error("Select an item ID and enter a query before flagging.")
+
+                            elif query_state["status"] == "PENDING_CLARIFICATION":
+                                st.warning(f"⚠️ **Reviewer Query Pending Response for ID: `{query_state['item_id']}`**")
+                                st.markdown(f"**Query ({query_state['reviewer_query_time']}):** *{query_state['reviewer_query']}*")
+                                prep_reply_txt = st.text_area("Preparer Clarification / Remittance Evidence", placeholder="Provide remittance voucher reference, bank trace ID, or explanation...", key="txt_prep_reply")
+                                if st.button("💬 Submit Preparer Response & Clear for Final Sign-Off", type="primary", use_container_width=True, key="btn_reply_q"):
+                                    if prep_reply_txt:
+                                        st.session_state["audit_query_thread"]["status"] = "APPROVED"
+                                        st.session_state["audit_query_thread"]["preparer_reply"] = prep_reply_txt
+                                        st.session_state["audit_query_thread"]["preparer_reply_time"] = now_str
+                                        st.success("Clarification logged in immutable audit trail.")
+                                        st.rerun()
+                                    else:
+                                        st.error("Clarification response cannot be blank.")
+
+                            elif query_state["status"] == "APPROVED":
+                                st.success(f"✅ **Audit Clarification Resolved for ID: `{query_state['item_id']}`**")
+                                st.markdown(f"• **Reviewer [{query_state['reviewer_query_time']}]:** {query_state['reviewer_query']}")
+                                st.markdown(f"• **Preparer [{query_state['preparer_reply_time']}]:** {query_state['preparer_reply']}")
+                                if not is_rev_approved and st.button("Reset / Clear Query Thread", key="btn_reset_q"):
+                                    st.session_state["audit_query_thread"] = {
+                                        "status": "NONE",
+                                        "item_id": "",
+                                        "reviewer_query": "",
+                                        "reviewer_query_time": "",
+                                        "preparer_reply": "",
+                                        "preparer_reply_time": ""
+                                    }
+                                    st.rerun()
+
                         if not is_rev_approved and query_state["status"] not in ["PENDING_CLARIFICATION"]:
                             if st.button("🛡️ Approve, Seal & Issue Audit Artifacts", type="primary", use_container_width=True, key="btn_rev_approve_direct"):
                                 st.session_state["reviewer_approved"] = True
@@ -1564,7 +1622,7 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                                 st.rerun()
                         elif is_rev_approved:
                             st.success(f"✅ Supervisory Sign-Off Formally Approved & Sealed ({st.session_state.get('saved_rev_verdict', rev_verdict)})")
-
+                            
             # CONTROL 5: DELIVERABLES HUB
             st.markdown("#### 📦 Audit Deliverables & Certification Hub")
             

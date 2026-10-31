@@ -145,7 +145,6 @@ def verify_license_key(email: str, license_key: str):
 # --- Ingestion, Cryptographic Fingerprinting & Sanitization ---
 # ==============================================================================
 def compute_stream_sha256(raw_bytes: bytes) -> str:
-    """Computes an immutable cryptographic SHA-256 fingerprint for ingested files."""
     if not raw_bytes:
         return "N/A"
     return hashlib.sha256(raw_bytes).hexdigest().upper()
@@ -1212,7 +1211,6 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 party_b = st.selectbox("Party / Narrative Column", cols_b, index=idx_party_b, key="map_party_b")
                 amt_b = st.selectbox("Amount Column", cols_b, index=idx_amt_b, key="map_amt_b")
 
-        # --- AUDIT CUT-OFF / 'AS AT' PERIOD CONTROLS ---
         p_col1, p_col2 = st.columns([1, 1])
         with p_col1:
             recon_as_at_date = st.date_input(
@@ -1241,16 +1239,14 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "pcaob_standard_ref": "AS 2201 / SOX 404 Section 8(b)"
             }
 
-           with st.spinner("Processing through Polars 3-tier matching engine with dynamic 'As At' aging..."):
+            with st.spinner("Processing through Polars 3-tier matching engine with dynamic 'As At' aging..."):
                 try:
-                    # Attempt call with as_at_date
                     matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
                         df_a, df_b, map_a, map_b, 
                         tolerance=tolerance, 
                         as_at_date=recon_as_at_date
                     )
                 except TypeError:
-                    # Graceful fallback if recon_engine.py hasn't reloaded yet
                     matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
                         df_a, df_b, map_a, map_b, 
                         tolerance=tolerance

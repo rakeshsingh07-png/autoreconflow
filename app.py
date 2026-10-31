@@ -1094,9 +1094,50 @@ with tab_gst:
                 }
             ]
 
-            st.markdown("##### 📋 Statutory Audit & Action Breakdown")
+           st.markdown("##### 📋 Statutory Audit & Action Breakdown")
+            df_summary_display = pd.DataFrame(summary_rows)
+
             st.dataframe(
-                pd.DataFrame(summary_table_data),
+                df_summary_display,
+                column_config={
+                    "Statutory Bucket": st.column_config.TextColumn(
+                        "Statutory Bucket",
+                        help="GSTR-3B compliance classification bucket",
+                        width=180
+                    ),
+                    "Invoices": st.column_config.NumberColumn(
+                        "Invoices",
+                        help="Count of affected documents",
+                        format="%d",
+                        width=85
+                    ),
+                    "Tax Impact": st.column_config.TextColumn(
+                        "Tax Impact",
+                        help="Net ITC tax impact in INR",
+                        width=130
+                    ),
+                    "Audit Status": st.column_config.SelectboxColumn(
+                        "Audit Status",
+                        help="Statutory claim status",
+                        width=140,
+                        options=[
+                            "Eligible to Claim",
+                            "Verify & Book",
+                            "ITC Blocked",
+                            "Requires Review"
+                        ]
+                    ),
+                    "Meaning": st.column_config.TextColumn(
+                        "Meaning",
+                        help="Technical root-cause diagnosis",
+                        width=280
+                    ),
+                    "Required Statutory Action": st.column_config.TextColumn(
+                        "Required Statutory Action",
+                        help="Mandatory action under CGST Sec 16(2)(aa) & Rule 36(4)",
+                        width=320
+                    ),
+                },
                 use_container_width=True,
                 hide_index=True
             )

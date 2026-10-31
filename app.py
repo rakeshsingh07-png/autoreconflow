@@ -380,7 +380,7 @@ def generate_gst_itc_excel_workpaper(df_b1, df_b2, df_b3, df_b4, company_name, c
             ws_sum.cell(row=5, column=1).font = bold_f
             ws_sum.cell(row=6, column=1).font = bold_f
 
-        # 6-Column Executive Audit Header matching the web app
+        # 6-Column Executive Audit Header matching the on-screen table
         headers = [
             "Statutory Bucket",
             "Invoices",
@@ -1058,86 +1058,95 @@ with tab_gst:
             k3.metric("Bucket 3: Missing in 2B", f"{len(b3)} invoices", delta="-ITC Blocked", delta_color="inverse")
             k4.metric("Bucket 4: Tax Mismatches", f"{len(b4)} invoices", delta="Requires Review", delta_color="inverse")
 
-            # --- ON-SCREEN STATUTORY SUMMARY BREAKDOWN TABLE ---
-            summary_table_data = [
+            def get_series_sum(df_target, col_name):
+                if df_target is None or len(df_target) == 0 or col_name not in df_target.columns:
+                    return 0.0
+                return float(pd.to_numeric(df_target[col_name].astype(str).str.replace(r'[^0-9.-]', '', regex=True), errors='coerce').fillna(0.0).sum())
+
+            b1_tax_val = get_series_sum(b1, 'Claimable_ITC_Total')
+            b2_tax_val = get_series_sum(b2, 'Available_Unclaimed_ITC')
+            b3_tax_val = get_series_sum(b3, 'Risk_Amount_ITC')
+            b4_tax_val = get_series_sum(b4, 'Tax_Variance')
+
+            summary_rows = [
                 {
-                    "Statutory Bucket": "Bucket 1: Direct Matches",
-                    "Invoices": len(b1),
-                    "Tax Impact": f"₹{safe_sum_numeric(b1, 'Claimable_ITC_Total'):,.2f}",
-                    "Audit Status": "Eligible to Claim",
-                    "Meaning": "Invoices match perfectly between Books and GSTR-2B portal records.",
-                    "Required Statutory Action": "Safe to Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)."
+                    "bucket": "Bucket 1: Direct Matches",
+                    "invoices": len(b1),
+                    "impact": f"₹{b1_tax_val:,.2f}",
+                    "status": "Eligible to Claim",
+                    "meaning": "Invoices match perfectly between Books and GSTR-2B portal records.",
+                    "action": "Safe to Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)."
                 },
                 {
-                    "Statutory Bucket": "Bucket 2: Missing in Books",
-                    "Invoices": len(b2),
-                    "Tax Impact": f"₹{safe_sum_numeric(b2, 'Available_Unclaimed_ITC'):,.2f}",
-                    "Audit Status": "Verify & Book",
-                    "Meaning": "Invoices filed by vendors in GSTR-2B, but unrecorded in purchase ledger/ERP.",
-                    "Required Statutory Action": "Unclaimed Credit. Verify receipt of supply; record purchase voucher before claiming."
+                    "bucket": "Bucket 2: Missing in Books",
+                    "invoices": len(b2),
+                    "impact": f"₹{b2_tax_val:,.2f}",
+                    "status": "Verify & Book",
+                    "meaning": "Invoices filed by vendors in GSTR-2B, but unrecorded in purchase ledger/ERP.",
+                    "action": "Unclaimed Credit. Verify receipt of supply; record purchase voucher before claiming."
                 },
                 {
-                    "Statutory Bucket": "Bucket 3: Missing in 2B",
-                    "Invoices": len(b3),
-                    "Tax Impact": f"₹{safe_sum_numeric(b3, 'Risk_Amount_ITC'):,.2f}",
-                    "Audit Status": "ITC Blocked",
-                    "Meaning": "Booked in ledger, but supplier failed to file GSTR-1/IFF or used wrong GSTIN.",
-                    "Required Statutory Action": "STRICTLY DO NOT CLAIM. Ineligible under Section 16(2)(aa); issue vendor notice."
+                    "bucket": "Bucket 3: Missing in 2B",
+                    "invoices": len(b3),
+                    "impact": f"₹{b3_tax_val:,.2f}",
+                    "status": "ITC Blocked",
+                    "meaning": "Booked in ledger, but supplier failed to file GSTR-1/IFF or used wrong GSTIN.",
+                    "action": "STRICTLY DO NOT CLAIM. Ineligible under Section 16(2)(aa); issue vendor notice."
                 },
                 {
-                    "Statutory Bucket": "Bucket 4: Tax Mismatches",
-                    "Invoices": len(b4),
-                    "Tax Impact": f"₹{safe_sum_numeric(b4, 'Tax_Variance'):,.2f}",
-                    "Audit Status": "Requires Review",
-                    "Meaning": "Taxable value or tax heads differ between Books and GSTR-2B statement.",
-                    "Required Statutory Action": "Rectify voucher tax heads or request supplier GSTR-1A amendment."
+                    "bucket": "Bucket 4: Tax Mismatches",
+                    "invoices": len(b4),
+                    "impact": f"₹{b4_tax_val:,.2f}",
+                    "status": "Requires Review",
+                    "meaning": "Taxable value or tax heads differ between Books and GSTR-2B statement.",
+                    "action": "Rectify voucher tax heads or request supplier GSTR-1A amendment."
                 }
             ]
 
-           st.markdown("##### 📋 Statutory Audit & Action Breakdown")
-            
-            status_colors = {
+            status_badges = {
                 "Eligible to Claim": ("#dcfce7", "#15803d", "✓"),
                 "Verify & Book": ("#fef9c3", "#a16207", "⚠"),
                 "ITC Blocked": ("#fee2e2", "#b91c1c", "🚫"),
                 "Requires Review": ("#f1f5f9", "#475569", "🔍")
             }
 
-            rows_html = ""
+            table_rows_html = ""
             for r in summary_rows:
-                bg, text_col, icon = status_colors.get(r['Audit Status'], ("#f1f5f9", "#334155", ""))
-                badge = f'<span style="background-color: {bg}; color: {text_col}; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 11px;">{icon} {r["Audit Status"]}</span>'
-                rows_html += f"""
-                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12.5px;">
-                    <td style="padding: 10px 12px; font-weight: 600; color: #1B365D;">{r['Statutory Bucket']}</td>
-                    <td style="padding: 10px 12px; text-align: right; font-weight: 600;">{r['Invoices']:,}</td>
-                    <td style="padding: 10px 12px; text-align: right; font-family: monospace; font-size: 13px;">{r['Tax Impact']}</td>
-                    <td style="padding: 10px 12px; text-align: center;">{badge}</td>
-                    <td style="padding: 10px 12px; color: #475569;">{r['Meaning']}</td>
-                    <td style="padding: 10px 12px; color: #1e293b; font-size: 12px;">{r['Required Statutory Action']}</td>
+                bg_col, txt_col, icon = status_badges.get(r["status"], ("#f1f5f9", "#334155", ""))
+                badge_html = f'<span style="background-color: {bg_col}; color: {txt_col}; padding: 4px 10px; border-radius: 12px; font-weight: 600; font-size: 11.5px; display: inline-block;">{icon} {r["status"]}</span>'
+                table_rows_html += f"""
+                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                    <td style="padding: 12px 14px; font-weight: 600; color: #1B365D;">{r["bucket"]}</td>
+                    <td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["invoices"]:,}</td>
+                    <td style="padding: 12px 14px; text-align: right; font-weight: 600; color: #0f172a;">{r["impact"]}</td>
+                    <td style="padding: 12px 14px; text-align: center;">{badge_html}</td>
+                    <td style="padding: 12px 14px; color: #475569; line-height: 1.4;">{r["meaning"]}</td>
+                    <td style="padding: 12px 14px; color: #1e293b; font-size: 12px; line-height: 1.4;">{r["action"]}</td>
                 </tr>
                 """
 
-            table_card_html = f"""
-            <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            executive_card_html = f"""
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #ffffff; margin-top: 16px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                 <table style="width: 100%; border-collapse: collapse; text-align: left;">
                     <thead>
-                        <tr style="background-color: #1B365D; color: #ffffff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">
-                            <th style="padding: 10px 12px;">Statutory Bucket</th>
-                            <th style="padding: 10px 12px; text-align: right;">Invoices</th>
-                            <th style="padding: 10px 12px; text-align: right;">Tax Impact</th>
-                            <th style="padding: 10px 12px; text-align: center;">Audit Status</th>
-                            <th style="padding: 10px 12px;">Meaning</th>
-                            <th style="padding: 10px 12px;">Required Statutory Action</th>
+                        <tr style="background: linear-gradient(135deg, #0A2540 0%, #1B365D 100%); color: #ffffff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                            <th style="padding: 12px 14px; width: 18%;">Statutory Bucket</th>
+                            <th style="padding: 12px 14px; text-align: right; width: 8%;">Invoices</th>
+                            <th style="padding: 12px 14px; text-align: right; width: 12%;">Tax Impact</th>
+                            <th style="padding: 12px 14px; text-align: center; width: 14%;">Audit Status</th>
+                            <th style="padding: 12px 14px; width: 24%;">Meaning</th>
+                            <th style="padding: 12px 14px; width: 24%;">Required Statutory Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows_html}
+                        {table_rows_html}
                     </tbody>
                 </table>
             </div>
             """
-            st.markdown(table_card_html, unsafe_allow_html=True)
+
+            st.markdown("##### 📋 Statutory Audit & Action Breakdown")
+            st.markdown(executive_card_html, unsafe_allow_html=True)
 
             gst_meta = {
                 "source_a_fingerprint": st.session_state.get("hash_gst_pr", "N/A"),

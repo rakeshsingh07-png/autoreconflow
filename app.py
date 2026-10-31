@@ -990,7 +990,7 @@ with tab_gst:
                 b1, b2, b3, b4 = execute_gst_itc_reconciliation_polars(df_pr, df_2b, map_pr, map_2b, tolerance=gst_tol)
             st.session_state["gst_res"] = (b1, b2, b3, b4)
 
-        if "gst_res" in st.session_state:
+       if "gst_res" in st.session_state:
             b1, b2, b3, b4 = st.session_state["gst_res"]
             st.markdown("#### 📊 GSTR-3B Statutory ITC Audit Buckets")
             k1, k2, k3, k4 = st.columns(4)
@@ -998,6 +998,49 @@ with tab_gst:
             k2.metric("Bucket 2: Missing in Books", f"{len(b2)} invoices", delta="Verify & Book")
             k3.metric("Bucket 3: Missing in 2B", f"{len(b3)} invoices", delta="-ITC Blocked", delta_color="inverse")
             k4.metric("Bucket 4: Tax Mismatches", f"{len(b4)} invoices", delta="Requires Review", delta_color="inverse")
+
+            # --- INSERT SUMMARY TABLE HERE ---
+            summary_table_data = [
+                {
+                    "Statutory Bucket": "Bucket 1: Direct Matches",
+                    "Invoices": len(b1),
+                    "Tax Impact": f"₹{safe_sum_numeric(b1, 'Claimable_ITC_Total'):,.2f}",
+                    "Audit Status": "Eligible to Claim",
+                    "Meaning": "Invoices match perfectly between Books and GSTR-2B portal records.",
+                    "Required Statutory Action": "Safe to Claim 100% in Table 4(A)(5) of GSTR-3B under Sec 16(2)(aa)."
+                },
+                {
+                    "Statutory Bucket": "Bucket 2: Missing in Books",
+                    "Invoices": len(b2),
+                    "Tax Impact": f"₹{safe_sum_numeric(b2, 'Available_Unclaimed_ITC'):,.2f}",
+                    "Audit Status": "Verify & Book",
+                    "Meaning": "Invoices filed by vendors in GSTR-2B, but unrecorded in purchase ledger/ERP.",
+                    "Required Statutory Action": "Unclaimed Credit. Verify receipt of supply; record purchase voucher before claiming."
+                },
+                {
+                    "Statutory Bucket": "Bucket 3: Missing in 2B",
+                    "Invoices": len(b3),
+                    "Tax Impact": f"₹{safe_sum_numeric(b3, 'Risk_Amount_ITC'):,.2f}",
+                    "Audit Status": "ITC Blocked",
+                    "Meaning": "Booked in ledger, but supplier failed to file GSTR-1/IFF or used wrong GSTIN.",
+                    "Required Statutory Action": "STRICTLY DO NOT CLAIM. Ineligible under Section 16(2)(aa); issue vendor notice."
+                },
+                {
+                    "Statutory Bucket": "Bucket 4: Tax Mismatches",
+                    "Invoices": len(b4),
+                    "Tax Impact": f"₹{safe_sum_numeric(b4, 'Tax_Variance'):,.2f}",
+                    "Audit Status": "Requires Review",
+                    "Meaning": "Taxable value or tax heads differ between Books and GSTR-2B statement.",
+                    "Required Statutory Action": "Rectify voucher tax heads or request supplier GSTR-1A amendment."
+                }
+            ]
+
+            st.markdown("##### 📋 Statutory Audit & Action Breakdown")
+            st.dataframe(
+                pd.DataFrame(summary_table_data),
+                use_container_width=True,
+                hide_index=True
+            )
 
             gst_meta = {
                 "source_a_fingerprint": st.session_state.get("hash_gst_pr", "N/A"),

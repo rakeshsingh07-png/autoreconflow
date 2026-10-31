@@ -110,35 +110,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# --- License Verification Engine (Deterministic SHA-256) ---
+# --- License Verification Engine (Deterministic Checksum + Date Expiry) ---
 # ==============================================================================
 def verify_license_key(email: str, license_key: str):
+    """
+    Verifies promotional evaluation and annual commercial licenses.
+    Expected Key Format: ARF-TIER-YYYYMMDD-CHECKSUM
+    Example: ARF-TRIAL-20261115-A1B2C3D4
+    """
     if not email or not license_key:
         return False, None
+
     email_clean = email.strip().lower()
     key_clean = license_key.strip().upper()
     salt = "AutoReconFlowSecretKey2026"
-    tier_map = {
-        "ARF-PRAC": "Practitioner",
-        "ARF-BIZ": "Business & Tax Suite",
-        "ARF-ENT": "Enterprise Turnkey"
-    }
+
     parts = key_clean.split("-")
-    if len(parts) != 5:
+    if len(parts) != 4:
         return False, None
-    prefix = f"{parts[0]}-{parts[1]}"
-    if prefix not in tier_map:
+
+    prefix, tier_code, exp_date_str, checksum = parts
+    if prefix != "ARF":
         return False, None
-        
-    tier_name = tier_map[prefix]
-    current_date = datetime.datetime.utcnow()
-    prev_month_date = current_date.replace(day=1) - datetime.timedelta(days=1)
-    
-    for m in [current_date.strftime("%Y%m"), prev_month_date.strftime("%Y%m")]:
-        raw_str = f"{email_clean}:{tier_name}:{salt}:{m}"
-        h = hashlib.sha256(raw_str.encode()).hexdigest().upper()
-        if key_clean == f"{prefix}-{h[:4]}-{h[4:8]}-{h[8:12]}":
-            return True, tier_name
+
+    tier_map = {
+        "TRIAL": "14-Day Free Promotional Evaluation",
+        "PRAC": "Practitioner Annual License",
+        "BIZ": "Business & Tax Suite Annual",
+        "ENT": "Enterprise Turnkey Annual"
+    }
+
+    if tier_code not in tier_map:
+        return False, None
+
+    # 1. Date Expiry Verification
+    try:
+        exp_date = datetime.datetime.strptime(exp_date_str, "%Y%m%d").date()
+        today = datetime.date.today()
+        if today > exp_date:
+            return False, "Evaluation License Expired. Contact contact@autoreconflow.com to upgrade."
+        days_remaining = (exp_date - today).days
+    except ValueError:
+        return False, None
+
+    # 2. Cryptographic Checksum Verification
+    raw_str = f"{email_clean}:{tier_code}:{exp_date_str}:{salt}"
+    expected_checksum = hashlib.sha256(raw_str.encode()).hexdigest()[:8].upper()
+
+    if checksum == expected_checksum:
+        display_label = tier_map[tier_code]
+        if tier_code == "TRIAL":
+            display_label += f" ({days_remaining} Days Remaining)"
+        return True, display_label
+
     return False, None
 
 # ==============================================================================

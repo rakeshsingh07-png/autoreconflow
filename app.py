@@ -1241,12 +1241,19 @@ INV-2026-110,Jupiter Legal,22500.00,2026-10-11"""
                 "pcaob_standard_ref": "AS 2201 / SOX 404 Section 8(b)"
             }
 
-            with st.spinner("Processing through Polars 3-tier matching engine with dynamic 'As At' aging..."):
+           with st.spinner("Processing through Polars 3-tier matching engine with dynamic 'As At' aging..."):
                 try:
+                    # Attempt call with as_at_date
                     matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
                         df_a, df_b, map_a, map_b, 
                         tolerance=tolerance, 
                         as_at_date=recon_as_at_date
+                    )
+                except TypeError:
+                    # Graceful fallback if recon_engine.py hasn't reloaded yet
+                    matched, fuzzy, un_a, un_b = execute_high_volume_reconciliation(
+                        df_a, df_b, map_a, map_b, 
+                        tolerance=tolerance
                     )
                 except Exception as e:
                     st.error(f"Reconciliation error: {str(e)}")

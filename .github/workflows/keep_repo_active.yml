@@ -1,0 +1,28 @@
+name: Auto-Heartbeat Repo Activity
+
+on:
+  schedule:
+    # Runs at 00:00 UTC on the 1st of every month
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  monthly_heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_ACTIVITY_TOKEN }}
+
+      - name: Update Heartbeat Log
+        run: |
+          date -u +"Auto-heartbeat verified active: %Y-%m-%d %H:%M:%S UTC" > .github/HEARTBEAT.txt
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/HEARTBEAT.txt
+          git commit -m "chore(maintenance): monthly repo activity heartbeat [skip ci]" || exit 0
+          git push

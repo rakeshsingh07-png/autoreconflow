@@ -1,0 +1,30 @@
+name: AutoReconFlow Morning & Evening Keep-Alive Worker
+
+on:
+  schedule:
+    # Runs at 02:30 UTC (8:00 AM IST) and 14:30 UTC (8:00 PM IST) daily
+    - cron: '30 2 * * *'
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping_autoreconflow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies & Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Run AI Keep-Alive Worker
+        run: |
+          python keep_alive_worker.py

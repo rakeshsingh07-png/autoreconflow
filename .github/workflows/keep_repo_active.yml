@@ -6,6 +6,9 @@ on:
     - cron: '0 0 1 * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   monthly_heartbeat:
     runs-on: ubuntu-latest
@@ -13,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.REPO_ACTIVITY_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Heartbeat Log
         run: |
